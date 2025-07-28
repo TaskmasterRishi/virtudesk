@@ -9,7 +9,12 @@ export default function RootLayout({
   return (
     <ClerkProvider>
       <html lang="en">
-        <body>{children}</body>
+        <head>
+          <meta charSet="utf-8" />
+          <link rel="icon" href="/logo.svg"/>
+        </head>
+        <body>
+          {children}</body>
       </html>
     </ClerkProvider>
   );
