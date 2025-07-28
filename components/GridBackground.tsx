@@ -103,7 +103,7 @@ export function GridBackground() {
         })
       );
     }
-  }, [isClient, isMobile]);
+  }, [isClient, isMobile, icons.length]);
 
   return (
     <div className="relative flex h-[50rem] w-full items-center justify-center bg-white dark:bg-black">
@@ -120,35 +120,37 @@ export function GridBackground() {
       {/* Floating icons (only rendered on the client) */}
       {isClient &&
         positions.length > 0 &&
-        icons.map(({ icon, delay }, index) => (
-          <motion.div
-            key={index}
-            initial={{ y: 0, opacity: 0 }}
-            animate={{
-              y: [0, -20, 0],
-              opacity: [0, 1, 0],
-              rotate: positions[index].rotate,
-            }}
-            transition={{
-              duration: 4,
-              repeat: Infinity,
-              repeatType: "reverse",
-              delay,
-            }}
-            className="absolute text-gray-500 dark:text-gray-400"
-            style={{
-              left: positions[index].left,
-              top: positions[index].top,
-              fontSize: `${positions[index].size}px`,
-              transform: `rotate(${positions[index].rotate}deg)`,
-            }}
-          >
-            {icon}
-          </motion.div>
-        ))}
+        icons.map(({ icon, delay }, index) =>
+          positions[index] ? (
+            <motion.div
+              key={index}
+              initial={{ y: 0, opacity: 0 }}
+              animate={{
+                y: [0, -20, 0],
+                opacity: [0, 1, 0],
+                rotate: positions[index].rotate,
+              }}
+              transition={{
+                duration: 4,
+                repeat: Infinity,
+                repeatType: "reverse",
+                delay,
+              }}
+              className="absolute text-gray-500 dark:text-gray-400"
+              style={{
+                left: positions[index].left,
+                top: positions[index].top,
+                fontSize: `${positions[index].size}px`,
+                transform: `rotate(${positions[index].rotate}deg)`,
+              }}
+            >
+              {icon}
+            </motion.div>
+          ) : null
+        )}
       <div className="relative z-20 text-center">
         <p className="bg-gradient-to-b from-[#affcfc] via-[#5c03fb] to-[#7d1ef6] bg-clip-text py-8 text-4xl font-bold text-transparent sm:text-7xl">
-          VituDesk
+          VirtuDesk
         </p>
         <p className="text-lg text-gray-600 dark:text-gray-300">
           Work Together, From Anywhere

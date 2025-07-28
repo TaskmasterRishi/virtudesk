@@ -49,11 +49,15 @@ export function WorldMapDotted() {
             end: { lat: 38.7223, lng: 9.1393 }, // Lisbon
           },
           {
+            start: { lat: 40.7128, lng: -74.006 }, // New York
+            end: { lat: 45.8566, lng: 0.3522 }, // Paris
+          },
+          {
             start: { lat: 51.5074, lng: -0.1278 }, // London
             end: { lat: 18.6139, lng: 79.209 }, // New Delhi
           },
           {
-            start: { lat: 18.6139, lng: 79.209}, // New Delhi
+            start: { lat: 18.6139, lng: 79.209 }, // New Delhi
             end: { lat: 43.1332, lng: 131.9113 }, // Vladivostok
           },
           {
@@ -63,10 +67,6 @@ export function WorldMapDotted() {
           {
             start: { lat: 18.6139, lng: 79.209 }, // New Delhi
             end: { lat: 12.2156, lng: 70.6369 }, // Gujarat, India
-          },
-          {
-            start: { lat: 40.7128, lng: -74.006 }, // New York
-            end: { lat: 45.8566, lng: 0.3522 }, // Paris
           },
         ]}
       />

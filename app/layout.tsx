@@ -11,7 +11,8 @@ export default function RootLayout({
       <html lang="en">
         <head>
           <meta charSet="utf-8" />
-          <link rel="icon" href="/logo.svg"/>
+          <link rel="icon" href="/logo.svg" />
+          <title>virtuOffice</title>
         </head>
         <body>
           {children}</body>
