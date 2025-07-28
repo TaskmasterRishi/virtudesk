@@ -5,6 +5,7 @@ import { currentUser } from '@clerk/nextjs/server';
 import AppDemoSection from '@/components/AppDemoSection';
 import { WorldMapDotted } from '@/components/WorldMapDotted';
 import Footer from '@/components/Footer';
+import { Testimonials } from '@/components/Testimonials';
 
 const HomePage = async () => {
   const user = await currentUser();
@@ -27,6 +28,7 @@ const HomePage = async () => {
       <GridBackground/>
       <WorldMapDotted/>
       <AppDemoSection/>
+      <Testimonials/>
       <Footer/>
     </div>
   )
