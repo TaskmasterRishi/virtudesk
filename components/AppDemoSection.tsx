@@ -1,9 +1,10 @@
 import React from 'react'
+import { WorldMapDotted } from './WorldMapDotted'
 
 const AppDemoSection = () => {
   return (
-    <div>AppDemoSection
-        
+    <div className='mt-0'>
+      <WorldMapDotted/>
     </div>
   )
 }
