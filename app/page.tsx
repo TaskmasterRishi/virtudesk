@@ -2,6 +2,7 @@ import { GridBackground } from '@/components/GridBackground'
 import React from 'react'
 import { ResizableNavbar } from "@/components/ResizableNavbar";
 import { currentUser } from '@clerk/nextjs/server';
+import AppDemoSection from '@/components/AppDemoSection';
 
 const HomePage = async () => {
   const user = await currentUser();
@@ -22,6 +23,7 @@ const HomePage = async () => {
     <div className='h-[200vh]'>
       <ResizableNavbar user={serializedUser}/>
       <GridBackground/>
+      <AppDemoSection/>
     </div>
   )
 }
