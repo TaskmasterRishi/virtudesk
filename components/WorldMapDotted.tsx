@@ -1,10 +1,19 @@
 "use client";
 import WorldMap from "@/components/ui/world-map";
 import { motion } from "motion/react";
+import { useInView } from "react-intersection-observer";
 
 export function WorldMapDotted() {
+  const { ref, inView } = useInView({
+    triggerOnce: true, // Only trigger once
+    threshold: 0.2,    // 20% of the component is visible
+  });
+
+  // Optionally, you can use a state to delay rendering the WorldMap until inView is true
+  // Or, just use inView to control the animation
+
   return (
-    <div className=" py-40 dark:bg-black bg-white w-full">
+    <div ref={ref} className="py-40 dark:bg-black bg-white w-full">
       <div className="max-w-7xl mx-auto text-center">
         <p className="font-bold text-xl md:text-4xl dark:text-white text-black">
           Remote{" "}
@@ -14,7 +23,7 @@ export function WorldMapDotted() {
                 key={idx}
                 className="inline-block"
                 initial={{ x: -10, opacity: 0 }}
-                animate={{ x: 0, opacity: 1 }}
+                animate={inView ? { x: 0, opacity: 1 } : { x: -10, opacity: 0 }}
                 transition={{ duration: 0.5, delay: idx * 0.04 }}
               >
                 {word}
@@ -69,6 +78,7 @@ export function WorldMapDotted() {
             end: { lat: 12.2156, lng: 70.6369 }, // Gujarat, India
           },
         ]}
+        animate={inView} // Optionally pass this prop if WorldMap supports animation
       />
     </div>
   );
