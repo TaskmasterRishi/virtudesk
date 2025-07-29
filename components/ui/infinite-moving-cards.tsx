@@ -61,7 +61,7 @@ export const InfiniteMovingCards = ({
     <div
       ref={containerRef}
       className={cn(
-        "scroller relative z-20 max-w-7xl overflow-hidden [mask-image:linear-gradient(to_right,transparent,white_20%,white_80%,transparent)]",
+        "scroller relative z-20 w-[90vw] overflow-hidden [mask-image:linear-gradient(to_right,transparent,white_20%,white_80%,transparent)]",
         className,
       )}
     >
@@ -76,28 +76,33 @@ export const InfiniteMovingCards = ({
       >
         {cards.map((item, idx) => (
           <li
-            className="relative w-[350px] max-w-full shrink-0 rounded-2xl border border-b-0 border-zinc-200 bg-[linear-gradient(180deg,#fafafa,#f5f5f5)] px-8 py-6 md:w-[450px] dark:border-zinc-700 dark:bg-[linear-gradient(180deg,#27272a,#18181b)]"
+            className="relative w-[350px] max-w-full shrink-0 rounded-lg border border-zinc-200 bg-white px-6 py-4 md:w-[450px] dark:border-zinc-700 dark:bg-zinc-800 shadow-sm hover:shadow-md transition-shadow duration-300"
             key={item.name + idx}
           >
-            <blockquote>
-              <div
-                aria-hidden="true"
-                className="user-select-none pointer-events-none absolute -top-0.5 -left-0.5 -z-1 h-[calc(100%_+_4px)] w-[calc(100%_+_4px)]"
-              ></div>
-              <span className="relative z-20 text-sm leading-[1.6] font-normal text-neutral-800 dark:text-gray-100">
-                {item.quote}
-              </span>
-              <div className="relative z-20 mt-6 flex flex-row items-center">
-                <span className="flex flex-col gap-1">
-                  <span className="text-sm leading-[1.6] font-normal text-neutral-500 dark:text-gray-400">
+            <div className="flex flex-col gap-4">
+              {/* Profile Picture, Name, and Designation */}
+              <div className="flex items-center gap-4">
+                {/* Placeholder for profile picture (replace with actual image) */}
+                <div className="h-12 w-12 rounded-full bg-zinc-100 dark:bg-zinc-700 flex items-center justify-center">
+                  <span className="text-xs text-zinc-500 dark:text-zinc-400">Photo</span>
+                </div>
+                <div className="flex flex-col">
+                  <span className="text-sm font-medium text-neutral-800 dark:text-gray-100">
                     {item.name}
                   </span>
-                  <span className="text-sm leading-[1.6] font-normal text-neutral-500 dark:text-gray-400">
+                  <span className="text-xs font-normal text-neutral-500 dark:text-gray-400">
                     {item.title}
                   </span>
-                </span>
+                </div>
               </div>
-            </blockquote>
+
+              {/* Testimonial Text */}
+              <blockquote className="mt-2">
+                <span className="text-sm leading-[1.6] font-normal text-neutral-700 dark:text-gray-200">
+                  {item.quote}
+                </span>
+              </blockquote>
+            </div>
           </li>
         ))}
       </motion.ul>
