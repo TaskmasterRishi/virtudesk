@@ -15,7 +15,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 
 export function ResizableNavbar() {
-  const {user} = useUser();
+  const { user } = useUser();
   const router = useRouter();
   const navItems = [
     {
@@ -44,8 +44,13 @@ export function ResizableNavbar() {
             {user ? (
               <UserButton />
             ) : (
-              <NavbarButton onClick={() => router.push("/sign-in")}>Login</NavbarButton>
+              <NavbarButton onClick={() => router.push("/sign-in")}>
+                Login
+              </NavbarButton>
             )}
+            <NavbarButton onClick={() => router.push("/dashboard")}>
+              Dashboard
+            </NavbarButton>
           </div>
         </NavBody>
 
@@ -74,12 +79,15 @@ export function ResizableNavbar() {
               </a>
             ))}
             <div className="flex w-full flex-col gap-4">
-              <NavbarButton
-                onClick={() => router.push("/sign-in")}
-                variant="primary"
-                className="w-full"
-              >
-                Login
+              {user ? (
+                <UserButton />
+              ) : (
+                <NavbarButton onClick={() => router.push("/sign-in")}>
+                  Login
+                </NavbarButton>
+              )}
+              <NavbarButton onClick={() => router.push("/dashboard")}>
+                Dashboard
               </NavbarButton>
             </div>
           </MobileNavMenu>
