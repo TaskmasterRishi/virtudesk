@@ -8,7 +8,7 @@ import {
   useMotionValueEvent,
 } from "framer-motion";
 
-import React, { useRef, useState } from "react";
+import React, { useRef, useState, useEffect } from "react";
 
 
 interface NavbarProps {
@@ -56,8 +56,14 @@ export const Navbar = ({ children, className }: NavbarProps) => {
     offset: ["start start", "end start"],
   });
   const [visible, setVisible] = useState<boolean>(false);
+  const [isMounted, setIsMounted] = useState<boolean>(false);
+
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
 
   useMotionValueEvent(scrollY, "change", (latest) => {
+    if (!isMounted) return; // Skip if not mounted
     if (latest > 100) {
       setVisible(true);
     } else {

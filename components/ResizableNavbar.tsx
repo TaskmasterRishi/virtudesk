@@ -10,11 +10,12 @@ import {
   MobileNavToggle,
   MobileNavMenu,
 } from "@/components/ui/resizable-navbar";
-import { UserButton } from "@clerk/nextjs";
+import { UserButton, useUser } from "@clerk/nextjs";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
-export function ResizableNavbar({ user }: { user: any }) {
+export function ResizableNavbar() {
+  const {user} = useUser();
   const router = useRouter();
   const navItems = [
     {
@@ -33,7 +34,7 @@ export function ResizableNavbar({ user }: { user: any }) {
 
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   return (
-    <div className="relative w-full">
+    <div className="relative w-[90vw] mx-auto overflow-hidden">
       <Navbar>
         {/* Desktop Navigation */}
         <NavBody>
