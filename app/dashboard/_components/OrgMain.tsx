@@ -1,12 +1,8 @@
 import { SidebarGroup, SidebarMenu } from "@/components/ui/sidebar";
-import { OrganizationSwitcher, useAuth } from "@clerk/nextjs";
-import React, { useEffect } from "react";
+import { OrganizationSwitcher } from "@clerk/nextjs";
 import CreateOrgBtn from "./CreateOrgBtn";
 
 const OrgMain = () => {
-  const { userId, orgId, orgRole } = useAuth();
-
-  console.log(userId, orgId, orgRole);
 
   return (
     <SidebarGroup>

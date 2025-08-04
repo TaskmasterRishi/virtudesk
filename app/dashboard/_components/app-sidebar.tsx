@@ -10,7 +10,6 @@ import { NavMain } from "./nav-main";
 import OrgMain from "./OrgMain";
 import { Separator } from "@/components/ui/separator";
 import MemberList from "./MemberList";
-import { UserButton } from "@clerk/nextjs";
 import { NavUser } from "./nav-user";
 
 export function AppSidebar() {
