@@ -47,10 +47,13 @@ function Button({
   }) {
   const Comp = asChild ? Slot : "button"
 
+  // Ensure dynamic props are consistent or moved to client side
+  const resolvedClassName = cn(buttonVariants({ variant, size, className }))
+
   return (
     <Comp
       data-slot="button"
-      className={cn(buttonVariants({ variant, size, className }))}
+      className={resolvedClassName}
       {...props}
     />
   )

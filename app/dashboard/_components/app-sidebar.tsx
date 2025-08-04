@@ -8,6 +8,10 @@ import {
 import Image from "next/image";
 import { NavMain } from "./nav-main";
 import OrgMain from "./OrgMain";
+import { Separator } from "@/components/ui/separator";
+import MemberList from "./MemberList";
+import { UserButton } from "@clerk/nextjs";
+import { NavUser } from "./nav-user";
 
 export function AppSidebar() {
   return (
@@ -20,6 +24,7 @@ export function AppSidebar() {
               alt="virtuDesk logo"
               width={40}
               height={40}
+              className="rounded-lg"
             />
           </div>
           <div className="grid flex-1 text-left text-sm leading-tight">
@@ -32,15 +37,22 @@ export function AppSidebar() {
           </div>
         </div>
       </SidebarHeader>
-      <SidebarContent>
+      <SidebarContent className="space-y-4">
         <SidebarGroup>
-            <NavMain/>
+          <NavMain />
         </SidebarGroup>
+        <Separator className="mx-4 w-auto" />
         <SidebarGroup>
-            <OrgMain/>
+          <OrgMain />
+        </SidebarGroup>
+        <Separator className="mx-4 w-auto" />
+        <SidebarGroup>
+          <MemberList />
         </SidebarGroup>
       </SidebarContent>
-      <SidebarFooter />
+      <SidebarFooter>
+        <NavUser/>
+      </SidebarFooter>
     </Sidebar>
   );
 }
