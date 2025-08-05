@@ -49,32 +49,22 @@ interface MobileNavMenuProps {
   onClose: () => void;
 }
 
-export const Navbar = ({ children, className }: NavbarProps) => {
+export const Navbar = React.memo(({ children, className }: NavbarProps) => {
   const ref = useRef<HTMLDivElement>(null);
   const { scrollY } = useScroll({
     target: ref,
     offset: ["start start", "end start"],
   });
   const [visible, setVisible] = useState<boolean>(false);
-  const [isMounted, setIsMounted] = useState<boolean>(false);
-
-  useEffect(() => {
-    setIsMounted(true);
-  }, []);
 
   useMotionValueEvent(scrollY, "change", (latest) => {
-    if (!isMounted) return; // Skip if not mounted
-    if (latest > 100) {
-      setVisible(true);
-    } else {
-      setVisible(false);
-    }
+    setVisible(latest > 100);
   });
 
   return (
     <motion.div
       ref={ref}
-      className={cn("fixed inset-x-0 top-0 z-40 w-full", className)} // Changed from "sticky" to "fixed"
+      className={cn("fixed inset-x-0 top-0 z-40 w-full", className)}
     >
       {React.Children.map(children, (child) =>
         React.isValidElement(child)
@@ -86,9 +76,9 @@ export const Navbar = ({ children, className }: NavbarProps) => {
       )}
     </motion.div>
   );
-};
+});
 
-export const NavBody = ({ children, className, visible }: NavBodyProps) => {
+export const NavBody = React.memo(({ children, className, visible }: NavBodyProps) => {
   return (
     <motion.div
       animate={{
@@ -101,8 +91,8 @@ export const NavBody = ({ children, className, visible }: NavBodyProps) => {
       }}
       transition={{
         type: "spring",
-        stiffness: 200,
-        damping: 50,
+        stiffness: 150, // Reduced stiffness for smoother motion
+        damping: 30, // Reduced damping for smoother motion
       }}
       style={{
         minWidth: "800px",
@@ -116,9 +106,9 @@ export const NavBody = ({ children, className, visible }: NavBodyProps) => {
       {children}
     </motion.div>
   );
-};
+});
 
-export const NavItems = ({ items, className, onItemClick }: NavItemsProps) => {
+export const NavItems = React.memo(({ items, className, onItemClick }: NavItemsProps) => {
   const [hovered, setHovered] = useState<number | null>(null);
 
   return (
@@ -141,6 +131,7 @@ export const NavItems = ({ items, className, onItemClick }: NavItemsProps) => {
             <motion.div
               layoutId="hovered"
               className="absolute inset-0 h-full w-full rounded-full bg-gray-100 dark:bg-neutral-800"
+              transition={{ type: "spring", stiffness: 200, damping: 20 }} // Smoother hover effect
             />
           )}
           <span className="relative z-20">{item.name}</span>
@@ -148,7 +139,7 @@ export const NavItems = ({ items, className, onItemClick }: NavItemsProps) => {
       ))}
     </motion.div>
   );
-};
+});
 
 export const MobileNav = ({ children, className, visible }: MobileNavProps) => {
   return (

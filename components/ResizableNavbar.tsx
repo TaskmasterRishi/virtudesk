@@ -10,29 +10,33 @@ import {
   MobileNavToggle,
   MobileNavMenu,
 } from "@/components/ui/resizable-navbar";
-import { UserButton, useUser } from "@clerk/nextjs";
-import { useState } from "react";
+import { useUser, UserButton } from "@clerk/nextjs"; // Directly import UserButton
+import { useState, useMemo, Suspense } from "react";
 import { useRouter } from "next/navigation";
 
 export function ResizableNavbar() {
   const { user } = useUser();
   const router = useRouter();
-  const navItems = [
-    {
-      name: "Features",
-      link: "#features",
-    },
-    {
-      name: "Pricing",
-      link: "/pricing/",
-    },
-    {
-      name: "Contact",
-      link: "#contact",
-    },
-  ];
-
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+  const navItems = useMemo(
+    () => [
+      {
+        name: "Features",
+        link: "#features",
+      },
+      {
+        name: "Pricing",
+        link: "/pricing/",
+      },
+      {
+        name: "Contact",
+        link: "#contact",
+      },
+    ],
+    []
+  );
+
   return (
     <div className="relative w-[90vw] mx-auto overflow-hidden">
       <Navbar>
@@ -42,7 +46,9 @@ export function ResizableNavbar() {
           <NavItems items={navItems} />
           <div className="flex items-center gap-4">
             {user ? (
+              <Suspense fallback={null}>
               <UserButton />
+              </Suspense>
             ) : (
               <NavbarButton onClick={() => router.push("/sign-in")}>
                 Login
@@ -80,7 +86,7 @@ export function ResizableNavbar() {
             ))}
             <div className="flex w-full flex-col gap-4">
               {user ? (
-                <UserButton />
+                <UserButton /> // No lazy-loading
               ) : (
                 <NavbarButton onClick={() => router.push("/sign-in")}>
                   Login

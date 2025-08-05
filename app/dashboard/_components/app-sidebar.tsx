@@ -37,9 +37,9 @@ export function AppSidebar() {
         </div>
       </SidebarHeader>
       <SidebarContent className="space-y-4">
-        <SidebarGroup>
+        {/* <SidebarGroup>
           <NavMain />
-        </SidebarGroup>
+        </SidebarGroup> */}
         <Separator className="mx-4 w-auto" />
         <SidebarGroup>
           <OrgMain />
