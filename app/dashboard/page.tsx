@@ -2,6 +2,7 @@
 import React, { useMemo } from 'react'
 import RoomCard from './_components/RoomCard';
 import { Skeleton } from '@/components/ui/skeleton';
+import CreateRoomBtn from './_components/CreateRoomBtn';
 
 const ROOMS_DATA = Array.from({length: 10}, (_, i) => ({
   id: i + 1,
@@ -36,6 +37,8 @@ const page = () => {
   return (
     <div className="w-full flex justify-center">
       <div className="flex flex-wrap justify-start gap-5 w-full">
+      <CreateRoomBtn/>
+
         {ROOMS_DATA.map((room, index) => (
           <RoomCard
             key={room.id}

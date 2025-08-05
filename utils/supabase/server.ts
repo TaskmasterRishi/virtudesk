@@ -1,26 +1,36 @@
+'use server'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
+import { auth } from '@clerk/nextjs/server'
 
 export async function createClient() {
-  const cookieStore = await cookies()
+  const cookieStore = await cookies();
+  const { sessionClaims } = await auth();
+  console.log('Session Claims:', sessionClaims); // Debug log
 
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        getAll() {
-          return cookieStore.getAll()
+        get(name: string) {
+          return cookieStore.get(name)?.value;
         },
-        setAll(cookiesToSet) {
+        set(name: string, value: string, options: any) {
           try {
-            cookiesToSet.forEach(({ name, value, options }) =>
-              cookieStore.set(name, value, options)
-            )
+            cookieStore.set({ name, value, ...options });
           } catch {
+            // Handle error silently
+          }
+        },
+        remove(name: string, options: any) {
+          try {
+            cookieStore.set({ name, value: '', ...options });
+          } catch {
+            // Handle error silently
           }
         },
       },
     }
-  )
+  );
 }
