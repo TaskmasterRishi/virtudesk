@@ -1,26 +1,30 @@
 'use client'
-import React, { useMemo } from 'react'
+import React, { useEffect } from 'react';
 import RoomCard from './_components/RoomCard';
 import { Skeleton } from '@/components/ui/skeleton';
 import CreateRoomBtn from './_components/CreateRoomBtn';
+import { useOrganization } from '@clerk/nextjs';
+import { useRoomStore } from '@/app/stores/roomStore';
 
-const ROOMS_DATA = Array.from({length: 10}, (_, i) => ({
-  id: i + 1,
-  imageUrl: `/thumbnails/${i + 1}.jpeg`,
-  name: `Room ${String.fromCharCode(65 + i)}`,
-  date: new Date(),
-  creator: 'John Doe',
-  org: 'Acme Inc'
-}));
+export type Rooms = {
+  id: string;
+  org_id: string;
+  title: string;
+  imageUrl: string;
+  author_id: string;
+  author_name: string;
+  created_at: string;
+}
 
 const page = () => {
-  const [isLoading, setIsLoading] = React.useState(true);
+  const { organization } = useOrganization();
+  const { rooms, isLoading, fetchRooms } = useRoomStore();
 
-  React.useEffect(() => {
-    // Simulate loading
-    const timer = setTimeout(() => setIsLoading(false), 500);
-    return () => clearTimeout(timer);
-  }, []);
+  useEffect(() => {
+    if (organization) {
+      fetchRooms(organization.id);
+    }
+  }, [organization, fetchRooms]);
 
   if (isLoading) {
     return (
@@ -31,28 +35,27 @@ const page = () => {
           ))}
         </div>
       </div>
-    )
+    );
   }
 
   return (
     <div className="w-full flex justify-center">
       <div className="flex flex-wrap justify-start gap-5 w-full">
-      <CreateRoomBtn/>
-
-        {ROOMS_DATA.map((room, index) => (
+        <CreateRoomBtn />
+        {rooms.map((room, index) => (
           <RoomCard
             key={room.id}
             imageUrl={room.imageUrl}
-            name={room.name}
-            date={room.date}
-            creator={room.creator}
-            org={room.org}
+            title={room.title}
+            created_at={room.created_at}
+            author_name={room.author_name || ''}
+            org={organization?.name || ''}
             index={index + 1}
           />
         ))}
       </div>
     </div>
-  )
-}
+  );
+};
 
-export default page
+export default page;

@@ -1,14 +1,18 @@
 import React from 'react';
 import Image from 'next/image';
 import { motion } from 'framer-motion';
+import { Rooms } from '../page';
 
-const RoomCard = ({ imageUrl, name, date, creator, org, index }: { 
-  imageUrl: string;
-  name: string;
-  date: Date;
-  creator: string;
-  org: string;
-  index: number;
+const RoomCard = ({ 
+  imageUrl, 
+  title, 
+  created_at, 
+  author_name, 
+  org, 
+  index 
+}: Pick<Rooms, 'imageUrl' | 'title' | 'created_at' | 'author_name'> & { 
+  org: string; 
+  index: number; 
 }) => {
   return (
     <motion.div 
@@ -30,13 +34,19 @@ const RoomCard = ({ imageUrl, name, date, creator, org, index }: {
         transition={{ delay: index * 0.1 + 0.1 }}
       >
         <div className="relative w-full aspect-square bg-gray-100">
-          <Image
-            src={imageUrl}
-            alt="Room thumbnail"
-            fill
-            className="object-cover"
-            priority
-          />
+          {imageUrl ? (
+            <Image
+              src={imageUrl}
+              alt="Room thumbnail"
+              fill
+              className="object-cover"
+              priority
+            />
+          ) : (
+            <div className="flex items-center justify-center w-full h-full bg-gray-200">
+              <span className="text-gray-500">No Image</span>
+            </div>
+          )}
         </div>
       </motion.div>
       <motion.div 
@@ -51,7 +61,7 @@ const RoomCard = ({ imageUrl, name, date, creator, org, index }: {
           animate={{ x: 0 }}
           transition={{ delay: index * 0.1 + 0.3 }}
         >
-          {name}
+          {title}
         </motion.h3>
         <motion.p 
           className="text-sm text-gray-500"
@@ -59,7 +69,7 @@ const RoomCard = ({ imageUrl, name, date, creator, org, index }: {
           animate={{ x: 0 }}
           transition={{ delay: index * 0.1 + 0.4 }}
         >
-          Created: {date.toLocaleDateString()}
+          Created: {new Date(created_at).toLocaleDateString()}
         </motion.p>
         <motion.p 
           className="text-sm text-gray-500"
@@ -67,7 +77,7 @@ const RoomCard = ({ imageUrl, name, date, creator, org, index }: {
           animate={{ x: 0 }}
           transition={{ delay: index * 0.1 + 0.5 }}
         >
-          By: {creator}
+          By: {author_name}
         </motion.p>
         <motion.p 
           className="text-sm text-gray-500"

@@ -1,30 +1,44 @@
 "use client";
 
-import React from 'react';
+import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { useForm } from 'react-hook-form';
 import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { useOrganization } from '@clerk/nextjs';
+import { useOrganization, useUser } from '@clerk/nextjs';
 import { createRoom } from '@/app/actions/Room';
+import { useRoomStore } from '@/app/stores/roomStore';
+import { Loader } from 'lucide-react';
 
 const CreateRoomBtn = () => {
   const { organization } = useOrganization();
+  const { user } = useUser();
   const { register, handleSubmit, reset } = useForm<{ name: string }>();
+  const [isLoading, setIsLoading] = useState(false);
+  const { fetchRooms } = useRoomStore();
 
-  const onSubmit = async (formData: { name: string }) => {
-    if (!organization) throw new Error('No organization found');
+  const onSubmit = async (data: { name: string }) => {
+    if (!organization || !user) return;
 
+    setIsLoading(true);
     try {
-      const room = await createRoom({
-        name: formData.name,
-        org_id: organization.id, // Pass the org_id explicitly
-      });
-      console.log('Room created:', room);
+      const randomImageNumber = Math.floor(Math.random() * 10) + 1;
+      const roomData = {
+        org_id: organization.id,
+        title: data.name,
+        imageUrl: `/thumbnails/${randomImageNumber}.jpeg`,
+        author_id: user.id,
+        author_name: user.fullName || user.username || 'Anonymous',
+      };
+
+      await createRoom(roomData);
       reset();
+      await fetchRooms(organization.id); // Zustand will trigger a re-render
     } catch (error) {
       console.error('Failed to create room:', error);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -80,7 +94,9 @@ const CreateRoomBtn = () => {
             {...register('name', { required: true })}
             placeholder="Room Name"
           />
-          <Button type="submit">Create</Button>
+          <Button type="submit" disabled={isLoading}>
+            {isLoading ? <> <Loader className='animate-spin'/> 'Creating...' </>: 'Create'}
+          </Button>
         </form>
       </DialogContent>
     </Dialog>
