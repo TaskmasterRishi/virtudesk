@@ -45,6 +45,7 @@ const page = () => {
         {rooms.map((room, index) => (
           <RoomCard
             key={room.id}
+            id={room.id}
             imageUrl={room.imageUrl}
             title={room.title}
             created_at={room.created_at}
