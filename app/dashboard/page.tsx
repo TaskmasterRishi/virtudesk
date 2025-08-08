@@ -1,5 +1,5 @@
 'use client'
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import RoomCard from './_components/RoomCard';
 import { Skeleton } from '@/components/ui/skeleton';
 import CreateRoomBtn from './_components/CreateRoomBtn';
@@ -19,14 +19,18 @@ export type Rooms = {
 const page = () => {
   const { organization } = useOrganization();
   const { rooms, isLoading, fetchRooms } = useRoomStore();
+  const lastOrgIdRef = useRef<string | null>(null);
+
+  const orgId = organization?.id || null;
 
   useEffect(() => {
-    if (organization) {
-      fetchRooms(organization.id);
-    }
-  }, [organization, fetchRooms]);
+    if (!orgId) return;
+    if (lastOrgIdRef.current === orgId) return; // skip duplicate fetches for same org
+    lastOrgIdRef.current = orgId;
+    fetchRooms(orgId);
+  }, [orgId, fetchRooms]);
 
-  if (isLoading) {
+  if (isLoading && rooms.length === 0) {
     return (
       <div className="w-full flex justify-center">
         <div className="flex flex-wrap justify-start gap-5 w-full">
