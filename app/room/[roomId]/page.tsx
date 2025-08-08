@@ -1,9 +1,13 @@
-import React from 'react'
+// app/room/[roomId]/page.tsx
+import { Suspense } from 'react'
+import PhaserMap from '@/game/PhaserMap'
 
-const page = () => {
+export default function RoomPage() {
   return (
-    <div>Room canvas will be shown here</div>
+    <div className="w-full h-screen">
+      <Suspense fallback={<div className="w-full h-screen flex items-center justify-center">Loading game...</div>}>
+        <PhaserMap />
+      </Suspense>
+    </div>
   )
 }
-
-export default page
