@@ -94,7 +94,7 @@ export function GridBackground() {
   }, [isClient, isMobile, icons]);
 
   return (
-    <div className="relative flex h-[50rem] w-full items-center justify-center bg-white dark:bg-black">
+    <div className="relative flex h-[100vh] w-full items-center justify-center bg-white dark:bg-black">
       <div
         className={cn(
           "absolute inset-0",
