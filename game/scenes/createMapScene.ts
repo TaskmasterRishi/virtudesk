@@ -1,5 +1,5 @@
-// game/scenes/createMapScene.ts
-// game/scenes/createMapScene.ts
+import { PlayerMovement } from './playerMovement';
+
 export interface MapSceneOptions {
   avatarUrl: string
 }
@@ -11,6 +11,7 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
     wasd!: any
     mapW!: number
     mapH!: number
+    private playerMovement!: PlayerMovement;
 
     constructor() {
       super('MapScene')
@@ -39,23 +40,29 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
       this.cameras.main.roundPixels = true
       this.cameras.main.startFollow(this.player, true, 0.08, 0.08)
       this.cameras.main.setFollowOffset(0, 0)
+      this.playerMovement = new PlayerMovement(this.player, this.cursors, this.wasd);
     }
 
     create() {
-      const keyboard = this.input.keyboard
-      if (!keyboard) return
-
-      this.cursors = keyboard.createCursorKeys()
-      this.wasd = keyboard.addKeys('W,A,S,D')
-
-      try {
-        const map = this.make.tilemap({ key: 'map' })
-        const tilesetName = map.tilesets[0]?.name || 'tiles'
-        const tileset = map.addTilesetImage(tilesetName, 'tiles', 16, 16, 0, 0)
-        if (!tileset) throw new Error('Failed to load tileset')
-
-        const layerName = map.layers[0]?.name || 'Ground'
-        map.createLayer(layerName, [tileset], 0, 0)
+        const keyboard = this.input.keyboard
+        if (!keyboard) return
+  
+        this.cursors = keyboard.createCursorKeys()
+        this.wasd = keyboard.addKeys('W,A,S,D')
+  
+        try {
+          const map = this.make.tilemap({ key: 'map' })
+          const tilesetName = map.tilesets[0]?.name || 'tiles'
+          const tileset = map.addTilesetImage(tilesetName, 'tiles', 16, 16, 0, 0)
+          if (!tileset) throw new Error('Failed to load tileset')
+  
+          // Render all layers
+          map.layers.forEach((layer: any) => {
+            if (layer.type === 'tilelayer') {
+              const createdLayer = map.createLayer(layer.name, [tileset], 0, 0)
+              createdLayer?.setDepth(layer.id) // Set depth based on layer order
+            }
+          })
 
         const mapW = map.widthInPixels
         const mapH = map.heightInPixels
@@ -142,28 +149,7 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
     }
 
     update(time: number, delta: number) {
-      if (!this.player) return
-      const speed = 500 * (delta / 16.67) // Normalize speed based on 60fps
-      let vx = 0
-      let vy = 0
-
-      const left = this.cursors.left?.isDown || this.wasd.A.isDown
-      const right = this.cursors.right?.isDown || this.wasd.D.isDown
-      const up = this.cursors.up?.isDown || this.wasd.W.isDown
-      const down = this.cursors.down?.isDown || this.wasd.S.isDown
-
-      if (left) vx -= 1
-      if (right) vx += 1
-      if (up) vy -= 1
-      if (down) vy += 1
-
-      if (vx !== 0 || vy !== 0) {
-        const len = Math.hypot(vx, vy) || 1
-        vx = (vx / len) * speed
-        vy = (vy / len) * speed
-      }
-
-      this.player.setVelocity(vx, vy)
+      this.playerMovement?.update(time, delta);
     }
 
     shutdown() {
