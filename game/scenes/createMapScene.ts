@@ -1,4 +1,5 @@
 // game/scenes/createMapScene.ts
+// game/scenes/createMapScene.ts
 export interface MapSceneOptions {
   avatarUrl: string
 }
@@ -17,7 +18,9 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
 
     preload() {
       this.load.crossOrigin = 'anonymous'
-      this.load.image('tiles', '/assests/tiles.png')
+      this.load.image('tiles', '/assests/tiles.png', {
+        scaleMode: Phaser.ScaleModes.NEAREST  // Use nearest-neighbor scaling
+      })
       this.load.tilemapTiledJSON('map', '/assests/map1.json')
       this.load.image('player', opts.avatarUrl)
     }
@@ -70,12 +73,14 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
           bottomBound - topBound
         )
         this.cameras.main.setBounds(0, 0, mapW, mapH)
+        this.cameras.main.setRoundPixels(true)  // Add this line to align to whole pixels
         this.cameras.main.setDeadzone(0, 0)
 
         const viewW = this.scale.width
         const viewH = this.scale.height
         const baseZoom = Math.min(viewW / mapW, viewH / mapH) || 1
-        this.cameras.main.setZoom(baseZoom*1.5)
+        this.cameras.main.setZoom(Math.floor(baseZoom * 100) / 100)  // Round zoom to 2 decimal places
+        this.cameras.main.setRoundPixels(true)
 
         const spawnX = map.tileWidth * 1.5
         const spawnY = map.tileHeight * 1.5
@@ -101,7 +106,9 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
             const tiles = map2.addTilesetImage('tiles', 'tiles', tileW, tileH, 0, 0)
             if (!tiles) throw new Error('Failed to load tileset')
 
-            map2.createLayer(0, [tiles], 0, 0)
+            const layer = map2.createLayer(0, [tiles], 0, 0);
+            layer?.setPipeline('TextureTintPipeline'); // Force texture rendering without blending
+            layer?.setCullPadding(1, 1); // Add padding to prevent edge gaps
 
             const mapW = map2.widthInPixels
             const mapH = map2.heightInPixels
@@ -119,6 +126,7 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
               bottomBound - topBound
             )
             this.cameras.main.setBounds(0, 0, mapW, mapH)
+            this.cameras.main.setRoundPixels(true)  // Add this line to align to whole pixels
             this.cameras.main.setDeadzone(0, 0)
 
             const viewW = this.scale.width
@@ -126,16 +134,16 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
             const baseZoom = Math.min(viewW / mapW, viewH / mapH) || 1
             this.cameras.main.setZoom(baseZoom*1.5)
 
-            const spawnX = tileW * 100
-            const spawnY = tileH * 100
+            const spawnX = tileW * 30
+            const spawnY = tileH * 50
             this.createPlayerAt(spawnX, spawnY, tileW, tileH)
           })
       }
     }
 
-    update() {
+    update(time: number, delta: number) {
       if (!this.player) return
-      const speed = 150
+      const speed = 500 * (delta / 16.67) // Normalize speed based on 60fps
       let vx = 0
       let vy = 0
 
@@ -156,6 +164,19 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
       }
 
       this.player.setVelocity(vx, vy)
+    }
+
+    shutdown() {
+        // Clean up any tilemap references
+        if (this.tilemap) {
+            this.tilemap.destroy();
+            this.tilemap = null;
+        }
+        // Clean up any tileset references
+        if (this.tileset) {
+            this.tileset.destroy();
+            this.tileset = null;
+        }
     }
   })()
 }

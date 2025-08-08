@@ -52,19 +52,19 @@ export const LoaderTwo = () => {
         transition={transition(0)}
         initial={{ x: 0 }}
         animate={{ x: [0, 20, 0] }}
-        className="h-4 w-4 rounded-full bg-neutral-200 shadow-md dark:bg-neutral-500"
+        className="h-4 w-4 rounded-full bg-blue-500 shadow-md dark:bg-neutral-500"
       />
       <motion.div
         initial={{ x: 0 }}
         animate={{ x: [0, 20, 0] }}
         transition={transition(0.4)}
-        className="h-4 w-4 -translate-x-2 rounded-full bg-neutral-200 shadow-md dark:bg-neutral-500"
+        className="h-4 w-4 -translate-x-2 rounded-full bg-blue-400 shadow-md dark:bg-neutral-500"
       />
       <motion.div
         initial={{ x: 0 }}
         animate={{ x: [0, 20, 0] }}
         transition={transition(0.8)}
-        className="h-4 w-4 -translate-x-4 rounded-full bg-neutral-200 shadow-md dark:bg-neutral-500"
+        className="h-4 w-4 -translate-x-4 rounded-full bg-blue-300 shadow-md dark:bg-neutral-500"
       />
     </div>
   );
