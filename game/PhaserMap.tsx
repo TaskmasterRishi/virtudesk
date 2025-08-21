@@ -7,13 +7,33 @@ import { usePhaserGame } from '@/hooks/usePhaserGame'
 import { defaultResize } from '@/hooks/resize'
 import { useMemo } from 'react'
 
-export default function PhaserMap() {
+export default function PhaserMap({ roomId }: { roomId: string }) {
   const { user } = useUser()
-  const avatarUrl = user?.imageUrl || '/logo.png'
+  const me = useMemo(() => {
+    const name =
+      user?.fullName ??
+      user?.username ??
+      user?.primaryEmailAddress?.emailAddress ??
+      'Anonymous'
+    return {
+      userId: user?.id ?? 'anon',
+      name,
+      avatarUrl: user?.imageUrl || '/logo.png',
+    }
+  }, [user])
 
   const createScenes = useMemo(
-    () => (Phaser: any) => [createMapScene({ avatarUrl }, Phaser)],
-    [avatarUrl]
+    () => (Phaser: any) =>
+      [createMapScene(
+        {
+          roomId,
+          userId: me.userId,
+          name: me.name,
+          avatarUrl: me.avatarUrl,
+        },
+        Phaser
+      )],
+    [roomId, me.userId, me.name, me.avatarUrl]
   )
 
   const { containerRef } = usePhaserGame({

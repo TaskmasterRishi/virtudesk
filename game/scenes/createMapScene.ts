@@ -1,6 +1,10 @@
 import { PlayerMovement } from "./PlayerMovement";
+import { createPlayerRealtime } from "@/game/realtime/PlayerRealtime";
 
 export interface MapSceneOptions {
+  roomId: string;
+  userId: string;
+  name?: string;
   avatarUrl: string;
 }
 
@@ -11,10 +15,14 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
     wasd!: any;
     mapW!: number;
     mapH!: number;
+    tileW!: number;
+    tileH!: number;
     private playerMovement!: PlayerMovement;
     private wallsLayer: any | null = null;
     private tilemap: any | null = null;
     private tileset: any | null = null;
+    private rt: ReturnType<typeof createPlayerRealtime> | null = null;
+    private remotePlayers: Record<string, any> = {};
 
     constructor() {
       super("MapScene");
@@ -42,7 +50,6 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
       );
 
       this.cameras.main.roundPixels = true;
-      // Remove smoothing to avoid sub-pixel camera positions (causes seams)
       this.cameras.main.startFollow(this.player, true, 1, 1);
       this.cameras.main.setFollowOffset(0, 0);
 
@@ -55,6 +62,81 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
       if (this.wallsLayer) {
         this.physics.add.collider(this.player, this.wallsLayer, null, null, this);
       }
+    }
+
+    private ensureRemoteSprite(userId: string, avatarUrl?: string, x?: number, y?: number) {
+      if (this.remotePlayers[userId]) return this.remotePlayers[userId];
+
+      const size = Math.min(this.tileW ?? 16, this.tileH ?? 16);
+      const key = `avatar:${userId}`;
+      const createSprite = (texKey: string) => {
+        const s = this.physics.add.sprite(x ?? 0, y ?? 0, texKey);
+        s.setOrigin(0.5, 0.5).setDepth(9);
+        s.setDisplaySize(size, size);
+        s.body.setCircle(
+          size / 2.2,
+          (s.displayWidth - size) / 2,
+          (s.displayHeight - size) / 2
+        );
+        this.remotePlayers[userId] = s;
+        if (this.wallsLayer) this.physics.add.collider(s, this.wallsLayer);
+        return s;
+      };
+
+      if (avatarUrl && !this.textures.exists(key)) {
+        this.load.image(key, avatarUrl);
+        this.load.once(Phaser.Loader.Events.COMPLETE, () => {
+          if (!this.remotePlayers[userId]) createSprite(key);
+        });
+        this.load.start();
+      } else if (this.textures.exists(key)) {
+        createSprite(key);
+      } else {
+        createSprite("player");
+      }
+      return this.remotePlayers[userId];
+    }
+
+    private handlePresenceSync = (state: Record<string, any[]>) => {
+      const present = new Set(Object.keys(state));
+      Object.keys(this.remotePlayers).forEach((id) => {
+        if (!present.has(id)) {
+          this.remotePlayers[id]?.destroy();
+          delete this.remotePlayers[id];
+        }
+      });
+    };
+
+    private initRealtime() {
+      this.rt = createPlayerRealtime({
+        roomId: opts.roomId,
+        me: {
+          userId: opts.userId,
+          name: opts.name,
+          avatarUrl: opts.avatarUrl,
+        },
+        handlers: {
+          onPlayerPos: (p) => {
+            if (p.userId === opts.userId) return;
+            const s = this.ensureRemoteSprite(p.userId, p.avatarUrl, p.x, p.y);
+            if (s) {
+              s.setPosition(p.x, p.y);
+              if (typeof p.vx === "number" && typeof p.vy === "number") {
+                s.setVelocity(p.vx, p.vy);
+              }
+            }
+          },
+          onPresenceSync: this.handlePresenceSync,
+        },
+        fps: 15,
+      });
+
+      this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+        this.rt?.destroy();
+        this.rt = null;
+        Object.values(this.remotePlayers).forEach((s) => s.destroy());
+        this.remotePlayers = {};
+      });
     }
 
     create() {
@@ -93,6 +175,8 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
         const mapH = map.heightInPixels;
         this.mapW = mapW;
         this.mapH = mapH;
+        this.tileW = map.tileWidth;
+        this.tileH = map.tileHeight;
 
         const insetX = map.tileWidth * 0.5;
         const insetY = map.tileHeight * 0.5;
@@ -114,13 +198,14 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
         const viewW = this.scale.width;
         const viewH = this.scale.height;
         const baseZoom = Math.min(viewW / mapW, viewH / mapH) || 1;
-        // Use integer zoom to avoid tile seams
         const desiredZoom = Math.max(1, Math.min(4, Math.round(baseZoom * 2)));
         this.cameras.main.setZoom(desiredZoom);
 
         const spawnX = map.tileWidth * 1.5;
         const spawnY = map.tileHeight * 1.5;
         this.createPlayerAt(spawnX, spawnY, map.tileWidth, map.tileHeight);
+
+        this.initRealtime();
       } catch {
         fetch("/assests/map1.json")
           .then((r) => r.json())
@@ -185,6 +270,8 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
             const mapH = map2.heightInPixels;
             this.mapW = mapW;
             this.mapH = mapH;
+            this.tileW = tileW;
+            this.tileH = tileH;
 
             const leftBound = tileW;
             const rightBound = mapW - tileW * 2;
@@ -209,12 +296,24 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
             const spawnX = tileW * 30;
             const spawnY = tileH * 50;
             this.createPlayerAt(spawnX, spawnY, tileW, tileH);
+
+            this.initRealtime();
           });
       }
     }
 
     update(time: number, delta: number) {
       this.playerMovement?.update(time, delta);
+      if (this.player && this.rt) {
+        const vx = this.player.body?.velocity?.x ?? 0;
+        const vy = this.player.body?.velocity?.y ?? 0;
+        this.rt.broadcastPosition({
+          x: this.player.x,
+          y: this.player.y,
+          vx,
+          vy,
+        });
+      }
     }
 
     shutdown() {
@@ -227,6 +326,10 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
         this.tileset = null;
       }
       this.wallsLayer = null;
+      this.rt?.destroy();
+      this.rt = null;
+      Object.values(this.remotePlayers).forEach((s) => s.destroy());
+      this.remotePlayers = {};
     }
   })();
 }
