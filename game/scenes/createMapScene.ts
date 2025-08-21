@@ -67,6 +67,12 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
     private ensureRemoteSprite(userId: string, avatarUrl?: string, x?: number, y?: number) {
       if (this.remotePlayers[userId]) return this.remotePlayers[userId];
 
+      // Check if physics system is available
+      if (!this.physics) {
+        console.warn('Physics system not available, cannot create remote sprite');
+        return null;
+      }
+
       const size = Math.min(this.tileW ?? 16, this.tileH ?? 16);
       const key = `avatar:${userId}`;
       const createSprite = (texKey: string) => {
@@ -84,17 +90,24 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
       };
 
       if (avatarUrl && !this.textures.exists(key)) {
+        // Create a temporary sprite with default texture while loading
+        const tempSprite = createSprite("player");
+        
         this.load.image(key, avatarUrl);
         this.load.once(Phaser.Loader.Events.COMPLETE, () => {
-          if (!this.remotePlayers[userId]) createSprite(key);
+          // Update the sprite texture once loaded
+          if (this.remotePlayers[userId]) {
+            this.remotePlayers[userId].setTexture(key);
+          }
         });
         this.load.start();
+        
+        return tempSprite;
       } else if (this.textures.exists(key)) {
-        createSprite(key);
+        return createSprite(key);
       } else {
-        createSprite("player");
+        return createSprite("player");
       }
-      return this.remotePlayers[userId];
     }
 
     private handlePresenceSync = (state: Record<string, any[]>) => {
@@ -118,8 +131,14 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
         handlers: {
           onPlayerPos: (p) => {
             if (p.userId === opts.userId) return;
+            
+            // Simple check - only proceed if physics exists
+            if (!this.physics) {
+              return;
+            }
+            
             const s = this.ensureRemoteSprite(p.userId, p.avatarUrl, p.x, p.y);
-            if (s) {
+            if (s && s.body) {
               s.setPosition(p.x, p.y);
               if (typeof p.vx === "number" && typeof p.vy === "number") {
                 s.setVelocity(p.vx, p.vy);
@@ -304,9 +323,9 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
 
     update(time: number, delta: number) {
       this.playerMovement?.update(time, delta);
-      if (this.player && this.rt) {
-        const vx = this.player.body?.velocity?.x ?? 0;
-        const vy = this.player.body?.velocity?.y ?? 0;
+      if (this.player && this.player.body && this.rt) {
+        const vx = this.player.body.velocity?.x ?? 0;
+        const vy = this.player.body.velocity?.y ?? 0;
         this.rt.broadcastPosition({
           x: this.player.x,
           y: this.player.y,

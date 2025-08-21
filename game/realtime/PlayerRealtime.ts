@@ -31,7 +31,11 @@ export function createPlayerRealtime(options: {
   handlers?: Handlers
   fps?: number // default 15
 }) {
-  const { roomId, me, handlers, fps = 30 } = options
+  const { roomId, me, handlers, fps = 15 } = options
+
+  const playerPositions = new Map<string, PlayerPosPayload>()
+  const debounceTimers = new Map<string, NodeJS.Timeout>()
+  const DEBOUNCE_DELAY = 100
 
   const channel = supabase.channel(`room:${roomId}`, {
     config: {
@@ -40,24 +44,59 @@ export function createPlayerRealtime(options: {
     },
   })
 
-  // Listen for other players' position broadcasts
+  function processPlayerPosition(playerPayload: PlayerPosPayload) {
+    playerPositions.set(playerPayload.userId, playerPayload)
+    
+    if (debounceTimers.has(playerPayload.userId)) {
+      clearTimeout(debounceTimers.get(playerPayload.userId)!)
+    }
+    
+    const timer = setTimeout(() => {
+      const finalData = playerPositions.get(playerPayload.userId)
+      if (finalData?.ts === playerPayload.ts) {
+        handlers?.onPlayerPos?.(finalData)
+      }
+      debounceTimers.delete(playerPayload.userId)
+    }, DEBOUNCE_DELAY)
+    
+    debounceTimers.set(playerPayload.userId, timer)
+  }
+
   channel.on('broadcast', { event: 'player-pos' }, ({ payload }) => {
-    handlers?.onPlayerPos?.(payload as PlayerPosPayload)
-  })
-
-  // Presence sync (who's here)
-  channel.on('presence', { event: 'sync' }, () => {
-    handlers?.onPresenceSync?.(channel.presenceState())
-  })
-
-  // Join and announce presence metadata
-  channel.subscribe(async (status) => {
-    if (status === 'SUBSCRIBED') {
-      await channel.track({ ...me })
+    try {
+      const playerPayload = payload as PlayerPosPayload
+      
+      if (!playerPayload?.userId || typeof playerPayload.ts !== 'number') {
+        console.warn('Invalid player position payload:', payload)
+        return
+      }
+      
+      if (playerPayload.userId === me.userId) return
+      
+      processPlayerPosition(playerPayload)
+    } catch (error) {
+      console.error('Error processing player position:', error)
     }
   })
 
-  // Throttled broadcaster (default ~15 Hz)
+  channel.on('presence', { event: 'sync' }, () => {
+    try {
+      handlers?.onPresenceSync?.(channel.presenceState())
+    } catch (error) {
+      console.error('Error in presence sync:', error)
+    }
+  })
+
+  channel.subscribe(async (status) => {
+    if (status === 'SUBSCRIBED') {
+      try {
+        await channel.track({ ...me })
+      } catch (error) {
+        console.error('Error tracking presence:', error)
+      }
+    }
+  })
+
   let lastSent = 0
   let latest: Omit<PlayerPosPayload, 'ts'> | null = null
   const intervalMs = Math.max(16, Math.floor(1000 / fps))
@@ -65,12 +104,17 @@ export function createPlayerRealtime(options: {
     if (!latest) return
     const now = Date.now()
     if (now - lastSent < intervalMs) return
+    
     lastSent = now
-    void channel.send({
-      type: 'broadcast',
-      event: 'player-pos',
-      payload: { ...latest, ts: now },
-    })
+    try {
+      void channel.send({
+        type: 'broadcast',
+        event: 'player-pos',
+        payload: { ...latest, ts: now },
+      })
+    } catch (error) {
+      console.error('Error broadcasting position:', error)
+    }
   }, intervalMs)
 
   function broadcastPosition(data: {
@@ -79,23 +123,35 @@ export function createPlayerRealtime(options: {
     vx?: number
     vy?: number
   }) {
+    if (typeof data.x !== 'number' || typeof data.y !== 'number') {
+      console.warn('Invalid position data:', data)
+      return
+    }
+    
     latest = {
       userId: me.userId,
       name: me.name,
       avatarUrl: me.avatarUrl,
-      x: data.x,
-      y: data.y,
-      vx: data.vx,
-      vy: data.vy,
+      ...data
     }
   }
 
   async function destroy() {
     clearInterval(interval)
+    debounceTimers.forEach(timer => clearTimeout(timer))
+    debounceTimers.clear()
+    playerPositions.clear()
+    
     try {
       await channel.untrack()
+    } catch (error) {
+      console.error('Error untracking presence:', error)
     } finally {
-      await channel.unsubscribe()
+      try {
+        await channel.unsubscribe()
+      } catch (error) {
+        console.error('Error unsubscribing:', error)
+      }
     }
   }
 

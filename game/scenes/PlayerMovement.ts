@@ -4,7 +4,7 @@ export class PlayerMovement {
     public player: any,
     public cursors: any,
     public wasd: any,
-    public speed: number = 200 // pixels per second
+    public speed: number = 150 // pixels per second
   ) {}
 
   update(_: number, __: number) {
