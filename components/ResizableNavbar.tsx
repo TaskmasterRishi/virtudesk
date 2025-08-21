@@ -10,12 +10,13 @@ import {
   MobileNavToggle,
   MobileNavMenu,
 } from "@/components/ui/resizable-navbar";
-import { useUser, UserButton } from "@clerk/nextjs"; // Directly import UserButton
+import { useUser, UserButton } from "@clerk/nextjs";
 import { useState, useMemo, Suspense } from "react";
 import { useRouter } from "next/navigation";
+import { motion } from "framer-motion";
 
 export function ResizableNavbar() {
-  const { user } = useUser();
+  const { isLoaded, user } = useUser();
   const router = useRouter();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
@@ -37,8 +38,15 @@ export function ResizableNavbar() {
     []
   );
 
+  if (!isLoaded) return null;
+
   return (
-    <div className="relative w-[90vw] mx-auto overflow-hidden">
+    <motion.div
+      initial={{ opacity: 0, y: -20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.5 }}
+      className="relative w-[90vw] mx-auto overflow-hidden"
+    >
       <Navbar>
         {/* Desktop Navigation */}
         <NavBody>
@@ -47,7 +55,7 @@ export function ResizableNavbar() {
           <div className="flex items-center gap-4">
             {user ? (
               <Suspense fallback={null}>
-              <UserButton />
+                <UserButton />
               </Suspense>
             ) : (
               <NavbarButton onClick={() => router.push("/sign-in")}>
@@ -75,30 +83,45 @@ export function ResizableNavbar() {
             onClose={() => setIsMobileMenuOpen(false)}
           >
             {navItems.map((item, idx) => (
-              <a
+              <motion.a
                 key={`mobile-link-${idx}`}
                 href={item.link}
                 onClick={() => setIsMobileMenuOpen(false)}
                 className="relative text-neutral-600 dark:text-neutral-300"
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ duration: 0.3, delay: idx * 0.1 }}
               >
                 <span className="block">{item.name}</span>
-              </a>
+              </motion.a>
             ))}
             <div className="flex w-full flex-col gap-4">
               {user ? (
-                <UserButton /> // No lazy-loading
+                <UserButton />
               ) : (
-                <NavbarButton onClick={() => router.push("/sign-in")}>
-                  Login
-                </NavbarButton>
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: navItems.length * 0.1 }}
+                >
+                  <NavbarButton onClick={() => router.push("/sign-in")}>
+                    Login
+                  </NavbarButton>
+                </motion.div>
               )}
-              <NavbarButton onClick={() => router.push("/dashboard")}>
-                Dashboard
-              </NavbarButton>
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: (navItems.length + 0.5) * 0.1 }}
+              >
+                <NavbarButton onClick={() => router.push("/dashboard")}>
+                  Dashboard
+                </NavbarButton>
+              </motion.div>
             </div>
           </MobileNavMenu>
         </MobileNav>
       </Navbar>
-    </div>
+    </motion.div>
   );
 }

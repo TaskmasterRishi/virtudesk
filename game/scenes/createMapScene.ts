@@ -1,4 +1,4 @@
-import { PlayerMovement } from "./playerMovement";
+import { PlayerMovement } from "./PlayerMovement";
 
 export interface MapSceneOptions {
   avatarUrl: string;
@@ -12,6 +12,9 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
     mapW!: number;
     mapH!: number;
     private playerMovement!: PlayerMovement;
+    private wallsLayer: any | null = null;
+    private tilemap: any | null = null;
+    private tileset: any | null = null;
 
     constructor() {
       super("MapScene");
@@ -32,15 +35,17 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
       this.player.setOrigin(0.5, 0.5).setDepth(10);
       this.player.setDisplaySize(size, size);
       this.player.setCollideWorldBounds(true);
-      // Adjust collision body to be slightly smaller than player sprite
       this.player.body.setCircle(
-        size / 2.2,  // Reduced radius to prevent clipping
+        size / 2.2,
         (this.player.displayWidth - size) / 2,
         (this.player.displayHeight - size) / 2
       );
+
       this.cameras.main.roundPixels = true;
-      this.cameras.main.startFollow(this.player, true, 0.08, 0.08);
+      // Remove smoothing to avoid sub-pixel camera positions (causes seams)
+      this.cameras.main.startFollow(this.player, true, 1, 1);
       this.cameras.main.setFollowOffset(0, 0);
+
       this.playerMovement = new PlayerMovement(
         this.player,
         this.cursors,
@@ -61,9 +66,12 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
 
       try {
         const map = this.make.tilemap({ key: "map" });
+        this.tilemap = map;
+
         const tilesetName = map.tilesets[0]?.name || "tiles";
         const tileset = map.addTilesetImage(tilesetName, "tiles", 16, 16, 0, 0);
         if (!tileset) throw new Error("Failed to load tileset");
+        this.tileset = tileset;
 
         map.layers.forEach((layer: any) => {
           if (layer.type === "tilelayer") {
@@ -71,10 +79,10 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
             if (createdLayer) {
               createdLayer.setDepth(layer.id);
               createdLayer.setVisible(layer.visible);
+              createdLayer.setCullPadding(2, 2);
               if (layer.name === "walls") {
                 this.wallsLayer = createdLayer;
-                // Enable collision for all non-empty tiles with more precise settings
-                this.wallsLayer.setCollisionByExclusion([-1], );
+                this.wallsLayer.setCollisionByExclusion([-1], true);
                 this.wallsLayer.setCollisionFromCollisionGroup();
               }
             }
@@ -106,8 +114,9 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
         const viewW = this.scale.width;
         const viewH = this.scale.height;
         const baseZoom = Math.min(viewW / mapW, viewH / mapH) || 1;
-        this.cameras.main.setZoom(Math.floor(baseZoom * 100) / 100);
-        this.cameras.main.setRoundPixels(true);
+        // Use integer zoom to avoid tile seams
+        const desiredZoom = Math.max(1, Math.min(4, Math.round(baseZoom * 2)));
+        this.cameras.main.setZoom(desiredZoom);
 
         const spawnX = map.tileWidth * 1.5;
         const spawnY = map.tileHeight * 1.5;
@@ -128,6 +137,8 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
               width,
               height,
             });
+            this.tilemap = map2;
+
             const tiles = map2.addTilesetImage(
               "tiles",
               "tiles",
@@ -137,6 +148,7 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
               0
             );
             if (!tiles) throw new Error("Failed to load tileset");
+            this.tileset = tiles;
 
             json.layers
               .filter((l: any) => l.type === "tilelayer")
@@ -161,7 +173,7 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
                 layer.putTilesAt(grid, 0, 0);
                 layer.setDepth(l.id ?? idx);
                 layer.setVisible(l.visible !== false);
-                layer.setCullPadding(1, 1);
+                layer.setCullPadding(2, 2);
                 if (l.name === "walls") {
                   this.wallsLayer = layer;
                   this.wallsLayer.setCollisionByExclusion([-1], true);
@@ -191,7 +203,8 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
             const viewW = this.scale.width;
             const viewH = this.scale.height;
             const baseZoom = Math.min(viewW / mapW, viewH / mapH) || 1;
-            this.cameras.main.setZoom(baseZoom * 1.5);
+            const desiredZoom = Math.max(1, Math.min(4, Math.round(baseZoom * 2)));
+            this.cameras.main.setZoom(desiredZoom);
 
             const spawnX = tileW * 30;
             const spawnY = tileH * 50;
@@ -209,10 +222,11 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
         this.tilemap.destroy();
         this.tilemap = null;
       }
-      if (this.tileset) {
+      if (this.tileset?.destroy) {
         this.tileset.destroy();
         this.tileset = null;
       }
+      this.wallsLayer = null;
     }
   })();
 }
