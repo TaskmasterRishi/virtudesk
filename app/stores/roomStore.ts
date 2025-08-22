@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { getRooms } from '@/app/actions/Room';
+import { getRooms, deleteRoom as deleteRoomAction, renameRoom as renameRoomAction } from '@/app/actions/Room';
 
 export interface Room {
   id: string;
@@ -15,9 +15,11 @@ interface RoomStore {
   rooms: Room[];
   isLoading: boolean;
   fetchRooms: (orgId: string) => Promise<void>;
+  deleteRoom: (roomId: string) => Promise<void>;
+  renameRoom: (roomId: string, title: string) => Promise<void>;
 }
 
-export const useRoomStore = create<RoomStore>((set) => ({
+export const useRoomStore = create<RoomStore>((set, get) => ({
   rooms: [],
   isLoading: false,
   fetchRooms: async (orgId: string) => {
@@ -31,4 +33,24 @@ export const useRoomStore = create<RoomStore>((set) => ({
       set({ isLoading: false });
     }
   },
-})); 
+  deleteRoom: async (roomId: string) => {
+    try {
+      await deleteRoomAction(roomId);
+      const { rooms } = get();
+      set({ rooms: rooms.filter(r => r.id !== roomId) });
+    } catch (error) {
+      console.error('Failed to delete room:', error);
+    }
+  },
+  renameRoom: async (roomId: string, title: string) => {
+    try {
+      await renameRoomAction(roomId, title);
+      const { rooms } = get();
+      set({
+        rooms: rooms.map(r => (r.id === roomId ? { ...r, title } : r)),
+      });
+    } catch (error) {
+      console.error('Failed to rename room:', error);
+    }
+  },
+}));

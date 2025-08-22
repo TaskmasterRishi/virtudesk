@@ -26,3 +26,29 @@ export const createRoom = async (roomData: Omit<Rooms, 'id' | 'created_at'>) => 
   if (error) throw error;
   return data;
 };
+
+export const deleteRoom = async (roomId: string) => {
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from('rooms')
+    .delete()
+    .eq('id', roomId)
+    .select();
+
+  if (error) throw error;
+  return data;
+};
+
+export const renameRoom = async (roomId: string, title: string) => {
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from('rooms')
+    .update({ title })
+    .eq('id', roomId)
+    .select();
+
+  if (error) throw error;
+  return data;
+};

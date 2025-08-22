@@ -16,6 +16,7 @@ const CreateRoomBtn = () => {
   const { user } = useUser();
   const { register, handleSubmit, reset } = useForm<{ name: string }>();
   const [isLoading, setIsLoading] = useState(false);
+  const [isOpen, setIsOpen] = useState(false);
   const { fetchRooms } = useRoomStore();
 
   const onSubmit = async (data: { name: string }) => {
@@ -34,7 +35,8 @@ const CreateRoomBtn = () => {
 
       await createRoom(roomData);
       reset();
-      await fetchRooms(organization.id); // Zustand will trigger a re-render
+      await fetchRooms(organization.id);
+      setIsOpen(false); // Close the dialog after successful creation
     } catch (error) {
       console.error('Failed to create room:', error);
     } finally {
@@ -43,7 +45,7 @@ const CreateRoomBtn = () => {
   };
 
   return (
-    <Dialog>
+    <Dialog open={isOpen} onOpenChange={setIsOpen}>
       <DialogTrigger asChild>
         <motion.div 
           className="w-[250px] border-2 rounded-xl flex items-center justify-center cursor-pointer bg-background hover:bg-primary/5 transition-colors"
@@ -95,7 +97,7 @@ const CreateRoomBtn = () => {
             placeholder="Room Name"
           />
           <Button type="submit" disabled={isLoading}>
-            {isLoading ? <> <Loader className='animate-spin'/> 'Creating...' </>: 'Create'}
+            {isLoading ? <> <Loader className='animate-spin'/> Creating... </>: 'Create'}
           </Button>
         </form>
       </DialogContent>
