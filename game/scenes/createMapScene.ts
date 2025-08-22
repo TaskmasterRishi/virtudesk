@@ -140,14 +140,10 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
             const s = this.ensureRemoteSprite(p.userId, p.avatarUrl, p.x, p.y);
             if (s && s.body) {
               s.setPosition(p.x, p.y);
-              if (typeof p.vx === "number" && typeof p.vy === "number") {
-                s.setVelocity(p.vx, p.vy);
-              }
             }
           },
           onPresenceSync: this.handlePresenceSync,
-        },
-        fps: 15,
+        }
       });
 
       this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
@@ -324,13 +320,9 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
     update(time: number, delta: number) {
       this.playerMovement?.update(time, delta);
       if (this.player && this.player.body && this.rt) {
-        const vx = this.player.body.velocity?.x ?? 0;
-        const vy = this.player.body.velocity?.y ?? 0;
         this.rt.broadcastPosition({
           x: this.player.x,
           y: this.player.y,
-          vx,
-          vy,
         });
       }
     }

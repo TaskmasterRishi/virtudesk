@@ -2,9 +2,9 @@
 import React, { useEffect, useRef } from 'react';
 import RoomCard from './_components/RoomCard';
 import { Skeleton } from '@/components/ui/skeleton';
-import CreateRoomBtn from './_components/CreateRoomBtn';
 import { useOrganization } from '@clerk/nextjs';
 import { useRoomStore } from '@/app/stores/roomStore';
+import CreateRoomBtn from './_components/CreateRoomBtn';
 
 export type Rooms = {
   id: string;
@@ -45,7 +45,7 @@ const page = () => {
   return (
     <div className="w-full flex justify-center">
       <div className="flex flex-wrap justify-start gap-5 w-full">
-        <CreateRoomBtn />
+        <CreateRoomBtn/>
         {rooms.map((room, index) => (
           <RoomCard
             key={room.id}
