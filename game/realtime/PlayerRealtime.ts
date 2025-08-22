@@ -1,10 +1,11 @@
 // playerRealTime.ts
 // Supabase realtime networking for player positions.
-// - Connects to a channel
-// - Broadcasts local player positions (throttled)
-// - Broadcasts player meta (name, avatarUrl) once at start
-// - Receives remote positions and enqueues them per player
-// - Exposes queues + meta for consumers (e.g., Phaser scene)
+// - Connects to a room channel
+// - Throttles + broadcasts local positions
+// - Broadcasts player meta (name, avatarUrl) on join & on meta-requests
+// - Handshakes: new client sends "meta-req", others reply with "player-meta"
+// - Receives remote positions -> per-player bounded queues
+// - Exposes queues + meta + subscription helpers
 
 import { RealtimeChannel } from '@supabase/supabase-js'
 import { supabase } from '@/utils/supabase/client'
@@ -26,13 +27,13 @@ export type PlayerPosPayload = {
 
 type PositionSample = { x: number; y: number; ts: number }
 type QueueMap = Map<string, PositionSample[]>
-
 type PlayerMetaInfo = { name?: string; avatarUrl?: string }
 
 // --- State ---
 let channel: RealtimeChannel | null = null
 let roomIdRef: string | null = null
 let playerIdRef: string | null = null
+let myMetaRef: PlayerMetaInfo = {}
 
 const positionQueues: QueueMap = new Map()
 const metaCache = new Map<string, PlayerMetaInfo>()
@@ -47,7 +48,7 @@ const SEND_HZ = 15
 const SEND_INTERVAL_MS = Math.floor(1000 / SEND_HZ)
 let lastSentAt = 0
 let lastPending: { x: number; y: number } | null = null
-let sendTimer: NodeJS.Timeout | null = null
+let sendTimer: ReturnType<typeof setTimeout> | null = null
 
 // --- Utils ---
 function pushToQueue(playerId: string, sample: PositionSample) {
@@ -55,6 +56,15 @@ function pushToQueue(playerId: string, sample: PositionSample) {
   q.push(sample)
   if (q.length > 8) q.shift() // max 8 samples
   positionQueues.set(playerId, q)
+}
+
+function safeSend(event: string, payload: Record<string, any>) {
+  if (!channel) return
+  try {
+    channel.send({ type: 'broadcast', event, payload })
+  } catch {
+    // swallow
+  }
 }
 
 // --- Init ---
@@ -66,9 +76,12 @@ export async function initRealtime(opts: {
   const { roomId, playerId, meta } = opts
   roomIdRef = roomId
   playerIdRef = playerId
+  myMetaRef = { ...(meta ?? {}) }
 
   // Cleanup old channel
-  if (channel) await channel.unsubscribe()
+  if (channel) {
+    try { await channel.unsubscribe() } catch {}
+  }
   channel = null
 
   channel = supabase.channel(`room:${roomId}`, {
@@ -100,9 +113,25 @@ export async function initRealtime(opts: {
     metaSubscribers.forEach((cb) => cb(data.playerId, next))
   })
 
-  await channel.subscribe((status) => {
-    if (status === 'SUBSCRIBED' && meta) {
-      sendPlayerMeta(meta) // 🚀 send Clerk name & avatar once on join
+  // Meta request (handshake) -> reply with our meta
+  channel.on('broadcast', { event: 'meta-req' }, (payload) => {
+    const data = payload.payload as { from?: string }
+    // avoid echoing to our own request
+    if (data?.from && data.from === playerIdRef) return
+    // reply with our current meta
+    if (playerIdRef) {
+      safeSend('player-meta', { playerId: playerIdRef, ...myMetaRef })
+    }
+  })
+
+  await channel.subscribe(async (status) => {
+    if (status === 'SUBSCRIBED') {
+      // send our meta once on join (so current listeners update)
+      if (myMetaRef && (myMetaRef.name || myMetaRef.avatarUrl)) {
+        sendPlayerMeta(myMetaRef)
+      }
+      // ask others to send their meta (so we see existing players on refresh/late join)
+      safeSend('meta-req', { from: playerIdRef })
     }
   })
 }
@@ -116,7 +145,7 @@ export function sendPosition(x: number, y: number) {
     // immediate
     lastSentAt = now
     lastPending = null
-    channel.send({ type: 'broadcast', event: 'player-pos', payload: { playerId: playerIdRef, x, y, ts: now } })
+    safeSend('player-pos', { playerId: playerIdRef, x, y, ts: now })
   } else {
     // coalesce + schedule
     lastPending = { x, y }
@@ -126,11 +155,7 @@ export function sendPosition(x: number, y: number) {
         sendTimer = null
         if (!channel || !lastPending) return
         const t = Date.now()
-        channel.send({
-          type: 'broadcast',
-          event: 'player-pos',
-          payload: { playerId: playerIdRef, x: lastPending.x, y: lastPending.y, ts: t },
-        })
+        safeSend('player-pos', { playerId: playerIdRef, x: lastPending.x, y: lastPending.y, ts: t })
         lastSentAt = t
         lastPending = null
       }, Math.max(0, wait))
@@ -140,9 +165,10 @@ export function sendPosition(x: number, y: number) {
 
 export function sendPlayerMeta(meta: PlayerMetaInfo) {
   if (!channel || !playerIdRef) return
-  const payload = { playerId: playerIdRef, ...meta }
-  channel.send({ type: 'broadcast', event: 'player-meta', payload })
-  metaCache.set(playerIdRef, { ...metaCache.get(playerIdRef), ...meta })
+  myMetaRef = { ...myMetaRef, ...meta }
+  const payload = { playerId: playerIdRef, ...myMetaRef }
+  safeSend('player-meta', payload)
+  metaCache.set(playerIdRef, { ...metaCache.get(playerIdRef), ...myMetaRef })
 }
 
 // --- Subscriptions ---
@@ -176,7 +202,9 @@ export function clearPlayerQueue(playerId: string) {
 
 // --- Cleanup ---
 export async function destroyRealtime() {
-  if (channel) await channel.unsubscribe()
+  if (channel) {
+    try { await channel.unsubscribe() } catch {}
+  }
   channel = null
   positionQueues.clear()
   updateSubscribers.clear()
@@ -200,7 +228,12 @@ export function createPlayerRealtime(options: {
 }) {
   const { roomId, me, handlers } = options
 
-  void initRealtime({ roomId, playerId: me.userId, meta: { name: me.name, avatarUrl: me.avatarUrl } }).then(() => {
+  void initRealtime({
+    roomId,
+    playerId: me.userId,
+    meta: { name: me.name, avatarUrl: me.avatarUrl },
+  }).then(() => {
+    // presence bridge compatibility (no-op but keeps old API happy)
     handlers?.onPresenceSync?.({})
   })
 
@@ -218,7 +251,7 @@ export function createPlayerRealtime(options: {
   })
 
   const offMeta = onPlayerMeta(() => {
-    // backward compatibility: meta is delivered via pos callback
+    // no-op; we fold meta into the next position callback for old consumers
   })
 
   return {
@@ -228,6 +261,6 @@ export function createPlayerRealtime(options: {
       offMeta()
       await destroyRealtime()
     },
-    channel: null as any, // hidden
+    channel: null as any, // intentionally hidden
   }
 }

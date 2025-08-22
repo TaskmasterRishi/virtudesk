@@ -1,5 +1,9 @@
 import { PlayerMovement } from "./PlayerMovement";
-import { createPlayerRealtime } from "@/game/realtime/PlayerRealtime";
+import {
+  createPlayerRealtime,
+  getPlayerMeta,
+  popNextPosition,
+} from "../realtime/PlayerRealtime";
 
 export interface MapSceneOptions {
   roomId: string;
@@ -22,7 +26,10 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
     private tilemap: any | null = null;
     private tileset: any | null = null;
     private rt: ReturnType<typeof createPlayerRealtime> | null = null;
+
+    // Remote sprites keyed by playerId
     private remotePlayers: Record<string, any> = {};
+    private loadingTextures = new Set<string>(); // avoid duplicate loads
 
     constructor() {
       super("MapScene");
@@ -34,6 +41,7 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
         scaleMode: Phaser.ScaleModes.NEAREST,
       });
       this.load.tilemapTiledJSON("map", "/assests/map1.json");
+      // local player's texture
       this.load.image("player", opts.avatarUrl);
     }
 
@@ -64,17 +72,27 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
       }
     }
 
+    /**
+     * Ensure a remote sprite exists and has the correct avatar texture.
+     * If avatar isn't loaded yet, load it and then swap texture.
+     */
     private ensureRemoteSprite(userId: string, avatarUrl?: string, x?: number, y?: number) {
-      if (this.remotePlayers[userId]) return this.remotePlayers[userId];
+      // Check if sprite already exists
+      if (this.remotePlayers[userId]) {
+        // If avatarUrl was provided later, make sure texture is applied once loaded
+        if (avatarUrl) this.ensureAvatarTexture(userId, avatarUrl);
+        return this.remotePlayers[userId];
+      }
 
-      // Check if physics system is available
       if (!this.physics) {
-        console.warn('Physics system not available, cannot create remote sprite');
+        console.warn("Physics system not available; cannot create remote sprite");
         return null;
       }
 
       const size = Math.min(this.tileW ?? 16, this.tileH ?? 16);
-      const key = `avatar:${userId}`;
+      const defaultKey = "player"; // fallback
+      const avatarKey = `avatar:${userId}`;
+
       const createSprite = (texKey: string) => {
         const s = this.physics.add.sprite(x ?? 0, y ?? 0, texKey);
         s.setOrigin(0.5, 0.5).setDepth(9);
@@ -89,35 +107,43 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
         return s;
       };
 
-      if (avatarUrl && !this.textures.exists(key)) {
-        // Create a temporary sprite with default texture while loading
-        const tempSprite = createSprite("player");
-        
-        this.load.image(key, avatarUrl);
-        this.load.once(Phaser.Loader.Events.COMPLETE, () => {
-          // Update the sprite texture once loaded
-          if (this.remotePlayers[userId]) {
-            this.remotePlayers[userId].setTexture(key);
-          }
-        });
-        this.load.start();
-        
-        return tempSprite;
-      } else if (this.textures.exists(key)) {
-        return createSprite(key);
-      } else {
-        return createSprite("player");
+      // If we already have the texture cached, use it
+      if (this.textures.exists(avatarKey)) {
+        return createSprite(avatarKey);
       }
+
+      // Create sprite with default texture first
+      const sprite = createSprite(defaultKey);
+
+      // If we know an avatar URL, load it and swap when ready
+      if (avatarUrl) this.ensureAvatarTexture(userId, avatarUrl);
+
+      return sprite;
     }
 
-    private handlePresenceSync = (state: Record<string, any[]>) => {
-      const present = new Set(Object.keys(state));
-      Object.keys(this.remotePlayers).forEach((id) => {
-        if (!present.has(id)) {
-          this.remotePlayers[id]?.destroy();
-          delete this.remotePlayers[id];
+    private ensureAvatarTexture(userId: string, avatarUrl: string) {
+      const avatarKey = `avatar:${userId}`;
+      if (this.textures.exists(avatarKey)) {
+        // Already loaded; just set it if sprite exists
+        this.remotePlayers[userId]?.setTexture(avatarKey);
+        return;
+      }
+      if (this.loadingTextures.has(avatarKey)) return;
+
+      this.loadingTextures.add(avatarKey);
+      this.load.image(avatarKey, avatarUrl);
+      this.load.once(Phaser.Loader.Events.COMPLETE, () => {
+        this.loadingTextures.delete(avatarKey);
+        if (this.remotePlayers[userId]) {
+          this.remotePlayers[userId].setTexture(avatarKey);
         }
       });
+      this.load.start();
+    }
+
+    // Optional: if you later wire presence, you could use this to prune sprites.
+    private handlePresenceSync = (_state: Record<string, any[]>) => {
+      // Keeping as a stub for compatibility.
     };
 
     private initRealtime() {
@@ -131,21 +157,22 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
         handlers: {
           onPlayerPos: (p) => {
             if (p.userId === opts.userId) return;
-            
-            // Simple check - only proceed if physics exists
-            if (!this.physics) {
-              return;
-            }
-            
+
+            // Make sure we have a sprite & correct avatar
             const s = this.ensureRemoteSprite(p.userId, p.avatarUrl, p.x, p.y);
-            if (s && s.body) {
+            if (!s) return;
+
+            // We rely on queue popping in update(); here we could optionally seed position
+            // to reduce initial snap on first packet.
+            if (!s.body || (s.x === 0 && s.y === 0)) {
               s.setPosition(p.x, p.y);
             }
           },
           onPresenceSync: this.handlePresenceSync,
-        }
+        },
       });
 
+      // Always cleanup
       this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
         this.rt?.destroy();
         this.rt = null;
@@ -161,11 +188,12 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
       this.cursors = keyboard.createCursorKeys();
       this.wasd = keyboard.addKeys("W,A,S,D");
 
+      // Build map (with safe fallback if tileset name differs in JSON)
       try {
         const map = this.make.tilemap({ key: "map" });
         this.tilemap = map;
 
-        const tilesetName = map.tilesets[0]?.name || "tiles";
+        const tilesetName = map.tilesets?.[0]?.name || "tiles";
         const tileset = map.addTilesetImage(tilesetName, "tiles", 16, 16, 0, 0);
         if (!tileset) throw new Error("Failed to load tileset");
         this.tileset = tileset;
@@ -222,6 +250,7 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
 
         this.initRealtime();
       } catch {
+        // JSON fallback (if createFromJSON path fails due to name mismatches)
         fetch("/assests/map1.json")
           .then((r) => r.json())
           .then((json) => {
@@ -319,11 +348,28 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
 
     update(time: number, delta: number) {
       this.playerMovement?.update(time, delta);
-      if (this.player && this.player.body && this.rt) {
+
+      // broadcast my position
+      if (this.player && this.rt) {
         this.rt.broadcastPosition({
           x: this.player.x,
           y: this.player.y,
         });
+      }
+
+      // drain one queued sample per remote player each frame (smooth stepping)
+      const ids = Object.keys(this.remotePlayers);
+      for (const id of ids) {
+        if (id === opts.userId) continue;
+
+        const sample = popNextPosition(id);
+        if (!sample) continue;
+
+        const s = this.ensureRemoteSprite(id, getPlayerMeta(id)?.avatarUrl);
+        if (!s) continue;
+
+        // simple step; for interpolation you can tween or lerp here
+        s.setPosition(sample.x, sample.y);
       }
     }
 
@@ -341,6 +387,7 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
       this.rt = null;
       Object.values(this.remotePlayers).forEach((s) => s.destroy());
       this.remotePlayers = {};
+      this.loadingTextures.clear();
     }
   })();
 }
