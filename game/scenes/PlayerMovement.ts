@@ -31,6 +31,27 @@ export class PlayerMovement {
 
     this.player.setVelocity(vx * this.speed, vy * this.speed);
     if (!vx && !vy) this.player.setVelocity(0, 0);
+
+    // Animation switching and flip
+    const moving = Math.abs(vx) > 0 || Math.abs(vy) > 0;
+    if (moving) {
+      const running = Math.abs(vx) > 0.9 || Math.abs(vy) > 0.9;
+      const target = running && this.player.anims?.animationManager?.exists("pink_run")
+        ? "pink_run"
+        : (this.player.anims?.animationManager?.exists("pink_walk") ? "pink_walk" : undefined);
+      if (target && this.player.anims?.currentAnim?.key !== target) {
+        this.player.anims.play(target, true);
+      }
+    } else if (this.player.anims?.animationManager?.exists("pink_idle")) {
+      if (this.player.anims?.currentAnim?.key !== "pink_idle") {
+        this.player.anims.play("pink_idle", true);
+      }
+    }
+
+    // Face left/right by horizontal velocity
+    if (vx !== 0) {
+      this.player.setFlipX(vx < 0);
+    }
   }
 }
 

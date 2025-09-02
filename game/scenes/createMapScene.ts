@@ -41,25 +41,91 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
         scaleMode: Phaser.ScaleModes.NEAREST,
       });
       this.load.tilemapTiledJSON("map", "/assests/map1.json");
-      // local player's texture
-      this.load.image("player", opts.avatarUrl);
+      // Local player's sprite images (Pink Monster)
+      this.load.image(
+        "pink_idle_img",
+        "/sprites/1 Pink_Monster/Pink_Monster_Idle_4.png"
+      );
+      this.load.image(
+        "pink_walk_img",
+        "/sprites/1 Pink_Monster/Pink_Monster_Walk_6.png"
+      );
+      this.load.image(
+        "pink_run_img",
+        "/sprites/1 Pink_Monster/Pink_Monster_Run_6.png"
+      );
     }
 
     private createPlayerAt(x: number, y: number, tileW: number, tileH: number) {
-      this.player = this.physics.add.sprite(x, y, "player");
-      const size = Math.min(tileW, tileH);
-      this.player.setOrigin(0.5, 0.5).setDepth(10);
-      this.player.setDisplaySize(size, size);
+      // Slice helper: split a single-row sheet into frames and register them on the texture
+      const sliceSheet = (imgKey: string, frames: number) => {
+        const tex = this.textures.get(imgKey);
+        // If texture not ready, skip (shouldn't happen because we load in preload)
+        if (!tex) return { frameNames: [] as string[], fw: 0, fh: 0 };
+        const src = tex.getSourceImage() as HTMLImageElement | HTMLCanvasElement;
+        const totalW = src.width as number;
+        const totalH = src.height as number;
+        const frameWidth = Math.floor(totalW / frames);
+        const frameHeight = totalH;
+        const names: string[] = [];
+        for (let i = 0; i < frames; i++) {
+          const name = `${imgKey}_${i}`;
+          // add(name, sourceIndex, x, y, width, height)
+          tex.add(name, 0, i * frameWidth, 0, frameWidth, frameHeight);
+          names.push(name);
+        }
+        return { frameNames: names, fw: frameWidth, fh: frameHeight };
+      };
+
+      // Prepare frames and animations (idle + walk + run)
+      const idle = sliceSheet("pink_idle_img", 4);
+      const walk = sliceSheet("pink_walk_img", 6);
+      const run = sliceSheet("pink_run_img", 6);
+
+      const ensureAnim = (
+        key: string,
+        imgKey: string,
+        names: string[],
+        frameRate: number
+      ) => {
+        if (this.anims.exists(key)) return;
+        this.anims.create({
+          key,
+          frames: names.map((n) => ({ key: imgKey, frame: n })),
+          frameRate,
+          repeat: -1,
+        });
+      };
+
+      ensureAnim("pink_idle", "pink_idle_img", idle.frameNames, 6);
+      ensureAnim("pink_walk", "pink_walk_img", walk.frameNames, 10);
+      ensureAnim("pink_run", "pink_run_img", run.frameNames, 12);
+
+      // Create player sprite using first idle frame
+      const firstFrame = idle.frameNames[0] ?? undefined;
+      this.player = this.physics.add.sprite(x, y, "pink_idle_img", firstFrame);
+
+      const desiredH = Math.min(tileH * 1.2, tileH * 1.6);
+      const scale = desiredH / (idle.fh || tileH);
+      this.player.setOrigin(0.5, 0.7).setDepth(10);
+      this.player.setScale(scale);
       this.player.setCollideWorldBounds(true);
+
+      // Body as a circle that roughly fits character feet/torso
+      const bodySize = Math.min(tileW, tileH) * 0.6;
       this.player.body.setCircle(
-        size / 2.2,
-        (this.player.displayWidth - size) / 2,
-        (this.player.displayHeight - size) / 2
+        bodySize / 2,
+        -bodySize / 2 + (this.player.displayWidth / 2),
+        -bodySize / 2 + (this.player.displayHeight / 2)
       );
 
+      // Camera follow
       this.cameras.main.roundPixels = true;
       this.cameras.main.startFollow(this.player, true, 1, 1);
       this.cameras.main.setFollowOffset(0, 0);
+
+      // Start idle by default
+      this.player.anims.play("pink_idle");
 
       this.playerMovement = new PlayerMovement(
         this.player,
