@@ -120,7 +120,7 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
       this.player = this.physics.add.sprite(x, y, "character_idle_img", firstFrame);
 
       const desiredH = Math.min(tileH * 1.2, tileH * 1.6);
-      const scale = desiredH / (idle.fh || tileH);
+      const scale = (desiredH / (idle.fh || tileH)) * 1.2; // +10% bigger
       this.player.setOrigin(0.5, 0.7).setDepth(10);
       this.player.setScale(scale);
       this.player.setCollideWorldBounds(true);
