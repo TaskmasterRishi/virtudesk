@@ -1,11 +1,25 @@
 
 export class PlayerMovement {
+  private animationKeys: {
+    idle: string;
+    walk: string;
+    run: string;
+  };
+
   constructor(
     public player: any,
     public cursors: any,
     public wasd: any,
-    public speed: number = 90// pixels per second
-  ) {}
+    public speed: number = 90, // pixels per second
+    animationKeys?: { idle: string; walk: string; run: string }
+  ) {
+    // Default to pink monster animations if no keys provided (backward compatibility)
+    this.animationKeys = animationKeys || {
+      idle: 'pink_idle',
+      walk: 'pink_walk',
+      run: 'pink_run'
+    };
+  }
 
   update(_: number, __: number) {
     if (!this.player || !this.cursors) return;
@@ -36,15 +50,15 @@ export class PlayerMovement {
     const moving = Math.abs(vx) > 0 || Math.abs(vy) > 0;
     if (moving) {
       const running = Math.abs(vx) > 0.9 || Math.abs(vy) > 0.9;
-      const target = running && this.player.anims?.animationManager?.exists("pink_run")
-        ? "pink_run"
-        : (this.player.anims?.animationManager?.exists("pink_walk") ? "pink_walk" : undefined);
+      const target = running && this.player.anims?.animationManager?.exists(this.animationKeys.run)
+        ? this.animationKeys.run
+        : (this.player.anims?.animationManager?.exists(this.animationKeys.walk) ? this.animationKeys.walk : undefined);
       if (target && this.player.anims?.currentAnim?.key !== target) {
         this.player.anims.play(target, true);
       }
-    } else if (this.player.anims?.animationManager?.exists("pink_idle")) {
-      if (this.player.anims?.currentAnim?.key !== "pink_idle") {
-        this.player.anims.play("pink_idle", true);
+    } else if (this.player.anims?.animationManager?.exists(this.animationKeys.idle)) {
+      if (this.player.anims?.currentAnim?.key !== this.animationKeys.idle) {
+        this.player.anims.play(this.animationKeys.idle, true);
       }
     }
 

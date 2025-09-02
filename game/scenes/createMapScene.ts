@@ -4,15 +4,25 @@ import {
   getPlayerMeta,
   popNextPosition,
 } from "../realtime/PlayerRealtime";
+import {
+  getOrSelectCharacter,
+  getSpritePaths,
+  CharacterSprite,
+} from "../utils/spriteUtils";
 
 export interface MapSceneOptions {
   roomId: string;
   userId: string;
   name?: string;
   avatarUrl: string;
+  
 }
 
+
+
 export function createMapScene(opts: MapSceneOptions, Phaser: any) {
+
+
   return new (class MapScene extends Phaser.Scene {
     player!: any;
     cursors!: any;
@@ -26,13 +36,17 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
     private tilemap: any | null = null;
     private tileset: any | null = null;
     private rt: ReturnType<typeof createPlayerRealtime> | null = null;
-
+    private selectedCharacter!: CharacterSprite;
+    // Remote sprites keyed by playerId
     // Remote sprites keyed by playerId
     private remotePlayers: Record<string, any> = {};
+    private prevRemotePos: Record<string, { x: number; y: number }> = {};
     private loadingTextures = new Set<string>(); // avoid duplicate loads
 
     constructor() {
       super("MapScene");
+      // Select a random character for this player
+      this.selectedCharacter = getOrSelectCharacter();
     }
 
     preload() {
@@ -41,19 +55,19 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
         scaleMode: Phaser.ScaleModes.NEAREST,
       });
       this.load.tilemapTiledJSON("map", "/assests/map1.json");
-      // Local player's sprite images (Pink Monster)
-      this.load.image(
-        "pink_idle_img",
-        "/sprites/1 Pink_Monster/Pink_Monster_Idle_4.png"
-      );
-      this.load.image(
-        "pink_walk_img",
-        "/sprites/1 Pink_Monster/Pink_Monster_Walk_6.png"
-      );
-      this.load.image(
-        "pink_run_img",
-        "/sprites/1 Pink_Monster/Pink_Monster_Run_6.png"
-      );
+      
+      // Load the selected character's sprite images
+      const spritePaths = getSpritePaths(this.selectedCharacter);
+      this.load.image("character_idle_img", spritePaths.idle);
+      this.load.image("character_walk_img", spritePaths.walk);
+      this.load.image("character_run_img", spritePaths.run);
+      
+      // Create a simple colored square as fallback for remote players
+      const g = this.add.graphics();
+      g.fillStyle(0x3498db, 1);
+      g.fillRect(0, 0, 32, 32);
+      g.generateTexture('player', 32, 32);
+      g.destroy();
     }
 
     private createPlayerAt(x: number, y: number, tileW: number, tileH: number) {
@@ -78,9 +92,9 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
       };
 
       // Prepare frames and animations (idle + walk + run)
-      const idle = sliceSheet("pink_idle_img", 4);
-      const walk = sliceSheet("pink_walk_img", 6);
-      const run = sliceSheet("pink_run_img", 6);
+      const idle = sliceSheet("character_idle_img", this.selectedCharacter.idleFrames);
+      const walk = sliceSheet("character_walk_img", this.selectedCharacter.walkFrames);
+      const run = sliceSheet("character_run_img", this.selectedCharacter.runFrames);
 
       const ensureAnim = (
         key: string,
@@ -97,13 +111,13 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
         });
       };
 
-      ensureAnim("pink_idle", "pink_idle_img", idle.frameNames, 6);
-      ensureAnim("pink_walk", "pink_walk_img", walk.frameNames, 10);
-      ensureAnim("pink_run", "pink_run_img", run.frameNames, 12);
+      ensureAnim(this.selectedCharacter.animations.idle, "character_idle_img", idle.frameNames, 6);
+      ensureAnim(this.selectedCharacter.animations.walk, "character_walk_img", walk.frameNames, 10);
+      ensureAnim(this.selectedCharacter.animations.run, "character_run_img", run.frameNames, 12);
 
       // Create player sprite using first idle frame
       const firstFrame = idle.frameNames[0] ?? undefined;
-      this.player = this.physics.add.sprite(x, y, "pink_idle_img", firstFrame);
+      this.player = this.physics.add.sprite(x, y, "character_idle_img", firstFrame);
 
       const desiredH = Math.min(tileH * 1.2, tileH * 1.6);
       const scale = desiredH / (idle.fh || tileH);
@@ -125,66 +139,48 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
       this.cameras.main.setFollowOffset(0, 0);
 
       // Start idle by default
-      this.player.anims.play("pink_idle");
+      this.player.anims.play(this.selectedCharacter.animations.idle);
 
       this.playerMovement = new PlayerMovement(
         this.player,
         this.cursors,
-        this.wasd
+        this.wasd,
+        90, // speed
+        this.selectedCharacter.animations
       );
 
       if (this.wallsLayer) {
         this.physics.add.collider(this.player, this.wallsLayer, null, null, this);
       }
     }
-
-    /**
-     * Ensure a remote sprite exists and has the correct avatar texture.
-     * If avatar isn't loaded yet, load it and then swap texture.
-     */
-    private ensureRemoteSprite(userId: string, avatarUrl?: string, x?: number, y?: number) {
-      // Check if sprite already exists
+    private ensureRemoteSprite(userId: string, _characterName?: string, x?: number, y?: number) {
       if (this.remotePlayers[userId]) {
-        // If avatarUrl was provided later, make sure texture is applied once loaded
-        if (avatarUrl) this.ensureAvatarTexture(userId, avatarUrl);
         return this.remotePlayers[userId];
       }
+      if (!this.physics) return null;
 
-      if (!this.physics) {
-        console.warn("Physics system not available; cannot create remote sprite");
-        return null;
+      // Use the same preloaded sheets as local
+      const s = this.physics.add.sprite(x ?? 0, y ?? 0, "character_idle_img");
+      s.setOrigin(0.5, 0.7).setDepth(9);
+
+      // Match local player's scale EXACTLY
+      if (this.player) {
+        s.setScale(this.player.scaleX, this.player.scaleY);
       }
 
-      const size = Math.min(this.tileW ?? 16, this.tileH ?? 16);
-      const defaultKey = "player"; // fallback
-      const avatarKey = `avatar:${userId}`;
+      const bodySize = Math.min(this.tileW, this.tileH) * 0.6;
+      s.body.setCircle(
+        bodySize / 2,
+        -bodySize / 2 + (s.displayWidth / 2),
+        -bodySize / 2 + (s.displayHeight / 2)
+      );
 
-      const createSprite = (texKey: string) => {
-        const s = this.physics.add.sprite(x ?? 0, y ?? 0, texKey);
-        s.setOrigin(0.5, 0.5).setDepth(9);
-        s.setDisplaySize(size, size);
-        s.body.setCircle(
-          size / 2.2,
-          (s.displayWidth - size) / 2,
-          (s.displayHeight - size) / 2
-        );
-        this.remotePlayers[userId] = s;
-        if (this.wallsLayer) this.physics.add.collider(s, this.wallsLayer);
-        return s;
-      };
+      const idleKey = this.selectedCharacter.animations.idle;
+      if (this.anims.exists(idleKey)) s.anims.play(idleKey, true);
 
-      // If we already have the texture cached, use it
-      if (this.textures.exists(avatarKey)) {
-        return createSprite(avatarKey);
-      }
-
-      // Create sprite with default texture first
-      const sprite = createSprite(defaultKey);
-
-      // If we know an avatar URL, load it and swap when ready
-      if (avatarUrl) this.ensureAvatarTexture(userId, avatarUrl);
-
-      return sprite;
+      this.remotePlayers[userId] = s;
+      if (this.wallsLayer) this.physics.add.collider(s, this.wallsLayer);
+      return s;
     }
 
     private ensureAvatarTexture(userId: string, avatarUrl: string) {
@@ -218,16 +214,15 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
         me: {
           userId: opts.userId,
           name: opts.name,
-          avatarUrl: opts.avatarUrl,
+          character: this.selectedCharacter.name,
         },
         handlers: {
           onPlayerPos: (p) => {
             if (p.userId === opts.userId) return;
 
-            // Make sure we have a sprite & correct avatar
-            const s = this.ensureRemoteSprite(p.userId, p.avatarUrl, p.x, p.y);
+            // Make sure we have a sprite & correct character
+            const s = this.ensureRemoteSprite(p.userId, p.character, p.x, p.y);
             if (!s) return;
-
             // We rely on queue popping in update(); here we could optionally seed position
             // to reduce initial snap on first packet.
             if (!s.body || (s.x === 0 && s.y === 0)) {
@@ -273,8 +268,8 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
               createdLayer.setCullPadding(2, 2);
               if (layer.name === "walls") {
                 this.wallsLayer = createdLayer;
-                this.wallsLayer.setCollisionByExclusion([-1], true);
-                this.wallsLayer.setCollisionFromCollisionGroup();
+                // Set collision for all non-empty tiles (any tile ID > 0)
+                this.wallsLayer.setCollisionByExclusion([-1, 0], true);
               }
             }
           }
@@ -371,8 +366,7 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
                 layer.setCullPadding(2, 2);
                 if (l.name === "walls") {
                   this.wallsLayer = layer;
-                  this.wallsLayer.setCollisionByExclusion([-1], true);
-                  this.wallsLayer.setCollisionFromCollisionGroup();
+                  this.wallsLayer.setCollisionByExclusion([-1, 0], true);
                 }
               });
 
@@ -423,20 +417,35 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
         });
       }
 
-      // drain one queued sample per remote player each frame (smooth stepping)
-      const ids = Object.keys(this.remotePlayers);
-      for (const id of ids) {
-        if (id === opts.userId) continue;
-
-        const sample = popNextPosition(id);
-        if (!sample) continue;
-
-        const s = this.ensureRemoteSprite(id, getPlayerMeta(id)?.avatarUrl);
-        if (!s) continue;
-
-        // simple step; for interpolation you can tween or lerp here
-        s.setPosition(sample.x, sample.y);
-      }
+       // drain one queued sample per remote player each frame (smooth stepping)
+       const ids = Object.keys(this.remotePlayers);
+       for (const id of ids) {
+         if (id === opts.userId) continue;
+ 
+         const sample = popNextPosition(id);
+         if (!sample) continue;
+ 
+         const s = this.ensureRemoteSprite(id);
+         if (!s) continue;
+ 
+         const prev = this.prevRemotePos?.[id];
+         const dx = prev ? sample.x - prev.x : 0;
+         const dy = prev ? sample.y - prev.y : 0;
+         const moving = Math.abs(dx) > 0.1 || Math.abs(dy) > 0.1;
+         const running = Math.abs(dx) > 1.0 || Math.abs(dy) > 1.0;
+ 
+         const { idle, walk, run } = this.selectedCharacter.animations;
+         if (moving) {
+           const target = running && this.anims.exists(run) ? run : (this.anims.exists(walk) ? walk : undefined);
+           if (target && s.anims?.currentAnim?.key !== target) s.anims.play(target, true);
+         } else if (this.anims.exists(idle) && s.anims?.currentAnim?.key !== idle) {
+           s.anims.play(idle, true);
+         }
+ 
+         if (dx !== 0) s.setFlipX(dx < 0);
+         s.setPosition(sample.x, sample.y);
+         this.prevRemotePos[id] = { x: sample.x, y: sample.y };
+       }
     }
 
     shutdown() {
@@ -453,6 +462,7 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
       this.rt = null;
       Object.values(this.remotePlayers).forEach((s) => s.destroy());
       this.remotePlayers = {};
+      this.prevRemotePos = {};
       this.loadingTextures.clear();
     }
   })();
