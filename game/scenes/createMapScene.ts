@@ -51,10 +51,10 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
 
     preload() {
       this.load.crossOrigin = "anonymous";
-      this.load.image("tiles", "/assests/tiles.png", {
+      this.load.image("tiles", "/assets/tiles.png", {
         scaleMode: Phaser.ScaleModes.NEAREST,
       });
-      this.load.tilemapTiledJSON("map", "/assests/map1.json");
+      this.load.tilemapTiledJSON("map", "/assets/map1.json");
       
       // Load the selected character's sprite images
       const spritePaths = getSpritePaths(this.selectedCharacter);
@@ -312,7 +312,7 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
         this.initRealtime();
       } catch {
         // JSON fallback (if createFromJSON path fails due to name mismatches)
-        fetch("/assests/map1.json")
+        fetch("/assets/map1.json")
           .then((r) => r.json())
           .then((json) => {
             const width = json.width;
