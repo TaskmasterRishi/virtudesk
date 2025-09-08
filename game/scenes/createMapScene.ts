@@ -45,10 +45,10 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
 
     preload() {
       this.load.crossOrigin = "anonymous";
-      this.load.image("tiles", "/assests/tiles.png", {
+      this.load.image("tiles", "/assests/tiles2.png", {
         scaleMode: Phaser.ScaleModes.NEAREST,
       });
-      this.load.tilemapTiledJSON("map", "/assests/map1.json");
+      this.load.tilemapTiledJSON("map", "/assests/map2.json");
 
       // Load the selected character's sprite images
       const spritePaths = getSpritePaths(this.selectedCharacter);
@@ -146,19 +146,19 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
 
       // Around line 147-150, make character height exactly 1 tile
       const desiredH = tileH; // Exactly 1 tile height
-      const scale = desiredH / (idle.fh || tileH)*1.5;
+      const scale = (desiredH / (idle.fh || tileH)) * 1.5;
       this.player.setOrigin(0.5, 0.7).setDepth(10);
       this.player.setScale(scale);
       this.player.setCollideWorldBounds(true);
 
       // Around line 154-160, change from circle to rectangle hitbox
       const bodySize = Math.min(tileW, tileH) * 0.6;
-      const legExtension = tileH ; // 0.5 tile extension for legs
+      const legExtension = tileH; // 0.5 tile extension for legs
 
       // Rectangle hitbox instead of circle
       this.player.body.setSize(
-        bodySize,                    // width
-        bodySize + legExtension      // height (with leg extension)
+        bodySize, // width
+        bodySize + legExtension // height (with leg extension)
       );
 
       // Camera follow
@@ -196,34 +196,19 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
       if (this.remotePlayers[userId]) {
         return this.remotePlayers[userId];
       }
-      
-      // Check if physics system is ready
-      if (!this.physics || !this.physics.add) {
-        console.log("Physics not ready, deferring remote sprite creation");
-        return null;
-      }
 
-      // Use the same preloaded sheets as local
-      const s = this.physics.add.sprite(x ?? 0, y ?? 0, "character_idle_img");
+      // Skip physics setup for remote players if server is authoritative
+      const s = this.add.sprite(x ?? 0, y ?? 0, "character_idle_img");
       s.setOrigin(0.5, 0.7).setDepth(9);
 
-      // Match local player's scale EXACTLY
       if (this.player) {
         s.setScale(this.player.scaleX, this.player.scaleY);
       }
-
-      const bodySize = Math.min(this.tileW, this.tileH) * 0.6;
-      s.body.setCircle(
-        bodySize / 2,
-        -bodySize / 2 + s.displayWidth / 2,
-        -bodySize / 2 + s.displayHeight / 2
-      );
 
       const idleKey = this.selectedCharacter.animations.idle;
       if (this.anims.exists(idleKey)) s.anims.play(idleKey, true);
 
       this.remotePlayers[userId] = s;
-      if (this.wallsLayer) this.physics.add.collider(s, this.wallsLayer);
       return s;
     }
 
@@ -264,18 +249,36 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
           onPlayerPos: (p) => {
             if (p.userId === opts.userId) return;
 
-            // Make sure we have a sprite & correct character
+            // Trust server-validated positions
             const s = this.ensureRemoteSprite(p.userId, p.character, p.x, p.y);
-            if (!s) {
-              // If sprite creation failed, queue the position for later
-              console.log("Deferring remote player position update");
-              return;
+            if (!s) return;
+
+            // Directly set position without physics checks
+            s.setPosition(p.x, p.y);
+
+            // Update animation based on movement
+            const prev = this.prevRemotePos?.[p.userId];
+            const dx = prev ? p.x - prev.x : 0;
+            const dy = prev ? p.y - prev.y : 0;
+            const moving = Math.abs(dx) > 0.1 || Math.abs(dy) > 0.1;
+            const running = Math.abs(dx) > 1.0 || Math.abs(dy) > 1.0;
+
+            const { idle, walk, run } = this.selectedCharacter.animations;
+            if (moving) {
+              const target =
+                running && this.anims.exists(run)
+                  ? run
+                  : this.anims.exists(walk)
+                  ? walk
+                  : undefined;
+              if (target && s.anims?.currentAnim?.key !== target)
+                s.anims.play(target, true);
+            } else if (this.anims.exists(idle) && s.anims?.currentAnim?.key !== idle) {
+              s.anims.play(idle, true);
             }
-            // We rely on queue popping in update(); here we could optionally seed position
-            // to reduce initial snap on first packet.
-            if (!s.body || (s.x === 0 && s.y === 0)) {
-              s.setPosition(p.x, p.y);
-            }
+
+            if (dx !== 0) s.setFlipX(dx < 0);
+            this.prevRemotePos[p.userId] = { x: p.x, y: p.y };
           },
           onPresenceSync: this.handlePresenceSync,
         },
@@ -290,6 +293,74 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
       });
     }
 
+    private setupMapBounds(mapW: number, mapH: number, tileW: number, tileH: number) {
+      const insetX = tileW * 0.5;
+      const insetY = tileH * 0.5;
+      const leftBound = insetX;
+      const rightBound = mapW - insetX;
+      const topBound = insetY;
+      const bottomBound = mapH - insetY;
+
+      this.physics.world.setBounds(
+        leftBound,
+        topBound,
+        rightBound - leftBound,
+        bottomBound - topBound
+      );
+      this.cameras.main.setBounds(0, 0, mapW, mapH);
+      this.cameras.main.setRoundPixels(true);
+      this.cameras.main.setDeadzone(0, 0);
+    }
+
+    private setupCameraZoom(mapW: number, mapH: number) {
+      const viewW = this.scale.width;
+      const viewH = this.scale.height;
+      this.cameras.main.setZoom(2.7);
+    }
+
+    private createMapFromJSON(json: any) {
+      const width = json.width;
+      const height = json.height;
+      const tileW = json.tilewidth;
+      const tileH = json.tileheight;
+      const firstgid = json.tilesets?.[0]?.firstgid ?? 1;
+
+      const map = this.make.tilemap({
+        tileWidth: tileW,
+        tileHeight: tileH,
+        width,
+        height,
+      });
+      this.tilemap = map;
+
+      const tiles = map.addTilesetImage("tiles", "tiles", tileW, tileH, 0, 0);
+      if (!tiles) throw new Error("Failed to load tileset");
+      this.tileset = tiles;
+
+      json.layers
+        .filter((l: any) => l.type === "tilelayer")
+        .forEach((l: any, idx: number) => {
+          const flat: number[] = l.data ?? [];
+          const normalized = flat.map((v: number) => v === 0 ? -1 : v - firstgid);
+          const grid: number[][] = [];
+          for (let i = 0; i < normalized.length; i += width) {
+            grid.push(normalized.slice(i, i + width));
+          }
+
+          const layer = map.createBlankLayer(l.name, tiles, 0, 0, width, height);
+          layer.putTilesAt(grid, 0, 0);
+          layer.setDepth(l.id ?? idx);
+          layer.setVisible(l.visible !== false);
+          layer.setCullPadding(2, 2);
+          if (l.name === "walls") {
+            this.wallsLayer = layer;
+            this.wallsLayer.setCollisionByExclusion([-1, 0], true);
+          }
+        });
+
+      return { map, tileW, tileH };
+    }
+
     create() {
       const keyboard = this.input.keyboard;
       if (!keyboard) return;
@@ -297,7 +368,6 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
       this.cursors = keyboard.createCursorKeys();
       this.wasd = keyboard.addKeys("W,A,S,D");
 
-      // Build map (with safe fallback if tileset name differs in JSON)
       try {
         const map = this.make.tilemap({ key: "map" });
         this.tilemap = map;
@@ -316,7 +386,6 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
               createdLayer.setCullPadding(2, 2);
               if (layer.name === "walls") {
                 this.wallsLayer = createdLayer;
-                // Set collision for all non-empty tiles (any tile ID > 0)
                 this.wallsLayer.setCollisionByExclusion([-1, 0], true);
               }
             }
@@ -330,128 +399,26 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
         this.tileW = map.tileWidth;
         this.tileH = map.tileHeight;
 
-        const insetX = map.tileWidth * 0.5;
-        const insetY = map.tileHeight * 0.5;
-        const leftBound = insetX;
-        const rightBound = mapW - insetX;
-        const topBound = insetY;
-        const bottomBound = mapH - insetY;
+        this.setupMapBounds(mapW, mapH, this.tileW, this.tileH);
+        this.setupCameraZoom(mapW, mapH);
 
-        this.physics.world.setBounds(
-          leftBound,
-          topBound,
-          rightBound - leftBound,
-          bottomBound - topBound
-        );
-        this.cameras.main.setBounds(0, 0, mapW, mapH);
-        this.cameras.main.setRoundPixels(true);
-        this.cameras.main.setDeadzone(0, 0);
-
-        const viewW = this.scale.width;
-        const viewH = this.scale.height;
-        const baseZoom = Math.min(viewW / mapW, viewH / mapH) || 1;
-        const desiredZoom = Math.max(1, Math.min(4, Math.round(baseZoom * 2)));
-        this.cameras.main.setZoom(desiredZoom);
-
-        const spawnX = map.tileWidth * 1.5;
-        const spawnY = map.tileHeight * 1.5;
-        this.createPlayerAt(spawnX, spawnY, map.tileWidth, map.tileHeight);
-
-        this.initRealtime();
+        
       } catch {
-        // JSON fallback (if createFromJSON path fails due to name mismatches)
-        fetch("/assests/map1.json")
+        fetch("/assests/map2.json")
           .then((r) => r.json())
           .then((json) => {
-            const width = json.width;
-            const height = json.height;
-            const tileW = json.tilewidth;
-            const tileH = json.tileheight;
-            const firstgid = json.tilesets?.[0]?.firstgid ?? 1;
-
-            const map2 = this.make.tilemap({
-              tileWidth: tileW,
-              tileHeight: tileH,
-              width,
-              height,
-            });
-            this.tilemap = map2;
-
-            const tiles = map2.addTilesetImage(
-              "tiles",
-              "tiles",
-              tileW,
-              tileH,
-              0,
-              0
-            );
-            if (!tiles) throw new Error("Failed to load tileset");
-            this.tileset = tiles;
-
-            json.layers
-              .filter((l: any) => l.type === "tilelayer")
-              .forEach((l: any, idx: number) => {
-                const flat: number[] = l.data ?? [];
-                const normalized = flat.map((v: number) =>
-                  v === 0 ? -1 : v - firstgid
-                );
-                const grid: number[][] = [];
-                for (let i = 0; i < normalized.length; i += width) {
-                  grid.push(normalized.slice(i, i + width));
-                }
-
-                const layer = map2.createBlankLayer(
-                  l.name,
-                  tiles,
-                  0,
-                  0,
-                  width,
-                  height
-                );
-                layer.putTilesAt(grid, 0, 0);
-                layer.setDepth(l.id ?? idx);
-                layer.setVisible(l.visible !== false);
-                layer.setCullPadding(2, 2);
-                if (l.name === "walls") {
-                  this.wallsLayer = layer;
-                  this.wallsLayer.setCollisionByExclusion([-1, 0], true);
-                }
-              });
-
-            const mapW = map2.widthInPixels;
-            const mapH = map2.heightInPixels;
-            this.mapW = mapW;
-            this.mapH = mapH;
+            const { map, tileW, tileH } = this.createMapFromJSON(json);
+            this.mapW = map.widthInPixels;
+            this.mapH = map.heightInPixels;
             this.tileW = tileW;
             this.tileH = tileH;
 
-            const leftBound = tileW;
-            const rightBound = mapW - tileW * 2;
-            const topBound = tileH;
-            const bottomBound = mapH - tileH * 2;
-            this.physics.world.setBounds(
-              leftBound,
-              topBound,
-              rightBound - leftBound,
-              bottomBound - topBound
-            );
-            this.cameras.main.setBounds(0, 0, mapW, mapH);
-            this.cameras.main.setRoundPixels(true);
-            this.cameras.main.setDeadzone(0, 0);
+            this.setupMapBounds(this.mapW, this.mapH, tileW, tileH);
+            this.setupCameraZoom(this.mapW, this.mapH);
 
-            const viewW = this.scale.width;
-            const viewH = this.scale.height;
-            const baseZoom = Math.min(viewW / mapW, viewH / mapH) || 1;
-            const desiredZoom = Math.max(
-              1,
-              Math.min(4, Math.round(baseZoom * 2))
-            );
-            this.cameras.main.setZoom(desiredZoom);
-
-            const spawnX = tileW * 30;
-            const spawnY = tileH * 50;
+            const spawnX = this.mapW/2;
+            const spawnY = this.mapH - 2*tileH;
             this.createPlayerAt(spawnX, spawnY, tileW, tileH);
-
             this.initRealtime();
           });
       }
@@ -460,7 +427,7 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
     update(time: number, delta: number) {
       this.playerMovement?.update(time, delta);
 
-      // broadcast my position
+      // Broadcast my position (server will validate)
       if (this.player && this.rt) {
         this.rt.broadcastPosition({
           x: this.player.x,
@@ -468,49 +435,7 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
         });
       }
 
-      // Try to create any deferred remote sprites now that physics should be ready
-      if (this.physics && this.physics.add) {
-        // This will be handled by the existing remote player update logic
-      }
-
-      // drain one queued sample per remote player each frame (smooth stepping)
-      const ids = Object.keys(this.remotePlayers);
-      for (const id of ids) {
-        if (id === opts.userId) continue;
-
-        const sample = popNextPosition(id);
-        if (!sample) continue;
-
-        const s = this.ensureRemoteSprite(id);
-        if (!s) continue;
-
-        const prev = this.prevRemotePos?.[id];
-        const dx = prev ? sample.x - prev.x : 0;
-        const dy = prev ? sample.y - prev.y : 0;
-        const moving = Math.abs(dx) > 0.1 || Math.abs(dy) > 0.1;
-        const running = Math.abs(dx) > 1.0 || Math.abs(dy) > 1.0;
-
-        const { idle, walk, run } = this.selectedCharacter.animations;
-        if (moving) {
-          const target =
-            running && this.anims.exists(run)
-              ? run
-              : this.anims.exists(walk)
-              ? walk
-              : undefined;
-          if (target && s.anims?.currentAnim?.key !== target)
-            s.anims.play(target, true);
-        } else if (
-          this.anims.exists(idle) &&
-          s.anims?.currentAnim?.key !== idle
-        ) {
-          s.anims.play(idle, true);
-        }
-
-        if (dx !== 0) s.setFlipX(dx < 0);
-        s.setPosition(sample.x, sample.y);
-        this.prevRemotePos[id] = { x: sample.x, y: sample.y };
-      }
+      // No need for deferred sprite creation or physics checks
     }
 
     shutdown() {
