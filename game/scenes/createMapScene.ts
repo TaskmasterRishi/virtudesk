@@ -1,7 +1,6 @@
 import { PlayerMovement } from "./PlayerMovement";
 import {
   createPlayerRealtime,
-  getPlayerMeta,
   popNextPosition,
 } from "../realtime/PlayerRealtime";
 import {
@@ -15,14 +14,9 @@ export interface MapSceneOptions {
   userId: string;
   name?: string;
   avatarUrl: string;
-  
 }
 
-
-
 export function createMapScene(opts: MapSceneOptions, Phaser: any) {
-
-
   return new (class MapScene extends Phaser.Scene {
     player!: any;
     cursors!: any;
@@ -55,18 +49,18 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
         scaleMode: Phaser.ScaleModes.NEAREST,
       });
       this.load.tilemapTiledJSON("map", "/assests/map1.json");
-      
+
       // Load the selected character's sprite images
       const spritePaths = getSpritePaths(this.selectedCharacter);
       this.load.image("character_idle_img", spritePaths.idle);
       this.load.image("character_walk_img", spritePaths.walk);
       this.load.image("character_run_img", spritePaths.run);
-      
+
       // Create a simple colored square as fallback for remote players
       const g = this.add.graphics();
       g.fillStyle(0x3498db, 1);
       g.fillRect(0, 0, 32, 32);
-      g.generateTexture('player', 32, 32);
+      g.generateTexture("player", 32, 32);
       g.destroy();
     }
 
@@ -76,7 +70,9 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
         const tex = this.textures.get(imgKey);
         // If texture not ready, skip (shouldn't happen because we load in preload)
         if (!tex) return { frameNames: [] as string[], fw: 0, fh: 0 };
-        const src = tex.getSourceImage() as HTMLImageElement | HTMLCanvasElement;
+        const src = tex.getSourceImage() as
+          | HTMLImageElement
+          | HTMLCanvasElement;
         const totalW = src.width as number;
         const totalH = src.height as number;
         const frameWidth = Math.floor(totalW / frames);
@@ -92,9 +88,18 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
       };
 
       // Prepare frames and animations (idle + walk + run)
-      const idle = sliceSheet("character_idle_img", this.selectedCharacter.idleFrames);
-      const walk = sliceSheet("character_walk_img", this.selectedCharacter.walkFrames);
-      const run = sliceSheet("character_run_img", this.selectedCharacter.runFrames);
+      const idle = sliceSheet(
+        "character_idle_img",
+        this.selectedCharacter.idleFrames
+      );
+      const walk = sliceSheet(
+        "character_walk_img",
+        this.selectedCharacter.walkFrames
+      );
+      const run = sliceSheet(
+        "character_run_img",
+        this.selectedCharacter.runFrames
+      );
 
       const ensureAnim = (
         key: string,
@@ -111,26 +116,49 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
         });
       };
 
-      ensureAnim(this.selectedCharacter.animations.idle, "character_idle_img", idle.frameNames, 6);
-      ensureAnim(this.selectedCharacter.animations.walk, "character_walk_img", walk.frameNames, 10);
-      ensureAnim(this.selectedCharacter.animations.run, "character_run_img", run.frameNames, 12);
+      ensureAnim(
+        this.selectedCharacter.animations.idle,
+        "character_idle_img",
+        idle.frameNames,
+        6
+      );
+      ensureAnim(
+        this.selectedCharacter.animations.walk,
+        "character_walk_img",
+        walk.frameNames,
+        10
+      );
+      ensureAnim(
+        this.selectedCharacter.animations.run,
+        "character_run_img",
+        run.frameNames,
+        12
+      );
 
       // Create player sprite using first idle frame
       const firstFrame = idle.frameNames[0] ?? undefined;
-      this.player = this.physics.add.sprite(x, y, "character_idle_img", firstFrame);
+      this.player = this.physics.add.sprite(
+        x,
+        y,
+        "character_idle_img",
+        firstFrame
+      );
 
-      const desiredH = Math.min(tileH * 1.2, tileH * 1.6);
-      const scale = (desiredH / (idle.fh || tileH)) * 1.2; // +10% bigger
+      // Around line 147-150, make character height exactly 1 tile
+      const desiredH = tileH; // Exactly 1 tile height
+      const scale = desiredH / (idle.fh || tileH)*1.5;
       this.player.setOrigin(0.5, 0.7).setDepth(10);
       this.player.setScale(scale);
       this.player.setCollideWorldBounds(true);
 
-      // Body as a circle that roughly fits character feet/torso
+      // Around line 154-160, change from circle to rectangle hitbox
       const bodySize = Math.min(tileW, tileH) * 0.6;
-      this.player.body.setCircle(
-        bodySize / 2,
-        -bodySize / 2 + (this.player.displayWidth / 2),
-        -bodySize / 2 + (this.player.displayHeight / 2)
+      const legExtension = tileH ; // 0.5 tile extension for legs
+
+      // Rectangle hitbox instead of circle
+      this.player.body.setSize(
+        bodySize,                    // width
+        bodySize + legExtension      // height (with leg extension)
       );
 
       // Camera follow
@@ -150,14 +178,30 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
       );
 
       if (this.wallsLayer) {
-        this.physics.add.collider(this.player, this.wallsLayer, null, null, this);
+        this.physics.add.collider(
+          this.player,
+          this.wallsLayer,
+          null,
+          null,
+          this
+        );
       }
     }
-    private ensureRemoteSprite(userId: string, _characterName?: string, x?: number, y?: number) {
+    private ensureRemoteSprite(
+      userId: string,
+      _characterName?: string,
+      x?: number,
+      y?: number
+    ) {
       if (this.remotePlayers[userId]) {
         return this.remotePlayers[userId];
       }
-      if (!this.physics) return null;
+      
+      // Check if physics system is ready
+      if (!this.physics || !this.physics.add) {
+        console.log("Physics not ready, deferring remote sprite creation");
+        return null;
+      }
 
       // Use the same preloaded sheets as local
       const s = this.physics.add.sprite(x ?? 0, y ?? 0, "character_idle_img");
@@ -171,8 +215,8 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
       const bodySize = Math.min(this.tileW, this.tileH) * 0.6;
       s.body.setCircle(
         bodySize / 2,
-        -bodySize / 2 + (s.displayWidth / 2),
-        -bodySize / 2 + (s.displayHeight / 2)
+        -bodySize / 2 + s.displayWidth / 2,
+        -bodySize / 2 + s.displayHeight / 2
       );
 
       const idleKey = this.selectedCharacter.animations.idle;
@@ -222,7 +266,11 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
 
             // Make sure we have a sprite & correct character
             const s = this.ensureRemoteSprite(p.userId, p.character, p.x, p.y);
-            if (!s) return;
+            if (!s) {
+              // If sprite creation failed, queue the position for later
+              console.log("Deferring remote player position update");
+              return;
+            }
             // We rely on queue popping in update(); here we could optionally seed position
             // to reduce initial snap on first packet.
             if (!s.body || (s.x === 0 && s.y === 0)) {
@@ -394,7 +442,10 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
             const viewW = this.scale.width;
             const viewH = this.scale.height;
             const baseZoom = Math.min(viewW / mapW, viewH / mapH) || 1;
-            const desiredZoom = Math.max(1, Math.min(4, Math.round(baseZoom * 2)));
+            const desiredZoom = Math.max(
+              1,
+              Math.min(4, Math.round(baseZoom * 2))
+            );
             this.cameras.main.setZoom(desiredZoom);
 
             const spawnX = tileW * 30;
@@ -417,35 +468,49 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
         });
       }
 
-       // drain one queued sample per remote player each frame (smooth stepping)
-       const ids = Object.keys(this.remotePlayers);
-       for (const id of ids) {
-         if (id === opts.userId) continue;
- 
-         const sample = popNextPosition(id);
-         if (!sample) continue;
- 
-         const s = this.ensureRemoteSprite(id);
-         if (!s) continue;
- 
-         const prev = this.prevRemotePos?.[id];
-         const dx = prev ? sample.x - prev.x : 0;
-         const dy = prev ? sample.y - prev.y : 0;
-         const moving = Math.abs(dx) > 0.1 || Math.abs(dy) > 0.1;
-         const running = Math.abs(dx) > 1.0 || Math.abs(dy) > 1.0;
- 
-         const { idle, walk, run } = this.selectedCharacter.animations;
-         if (moving) {
-           const target = running && this.anims.exists(run) ? run : (this.anims.exists(walk) ? walk : undefined);
-           if (target && s.anims?.currentAnim?.key !== target) s.anims.play(target, true);
-         } else if (this.anims.exists(idle) && s.anims?.currentAnim?.key !== idle) {
-           s.anims.play(idle, true);
-         }
- 
-         if (dx !== 0) s.setFlipX(dx < 0);
-         s.setPosition(sample.x, sample.y);
-         this.prevRemotePos[id] = { x: sample.x, y: sample.y };
-       }
+      // Try to create any deferred remote sprites now that physics should be ready
+      if (this.physics && this.physics.add) {
+        // This will be handled by the existing remote player update logic
+      }
+
+      // drain one queued sample per remote player each frame (smooth stepping)
+      const ids = Object.keys(this.remotePlayers);
+      for (const id of ids) {
+        if (id === opts.userId) continue;
+
+        const sample = popNextPosition(id);
+        if (!sample) continue;
+
+        const s = this.ensureRemoteSprite(id);
+        if (!s) continue;
+
+        const prev = this.prevRemotePos?.[id];
+        const dx = prev ? sample.x - prev.x : 0;
+        const dy = prev ? sample.y - prev.y : 0;
+        const moving = Math.abs(dx) > 0.1 || Math.abs(dy) > 0.1;
+        const running = Math.abs(dx) > 1.0 || Math.abs(dy) > 1.0;
+
+        const { idle, walk, run } = this.selectedCharacter.animations;
+        if (moving) {
+          const target =
+            running && this.anims.exists(run)
+              ? run
+              : this.anims.exists(walk)
+              ? walk
+              : undefined;
+          if (target && s.anims?.currentAnim?.key !== target)
+            s.anims.play(target, true);
+        } else if (
+          this.anims.exists(idle) &&
+          s.anims?.currentAnim?.key !== idle
+        ) {
+          s.anims.play(idle, true);
+        }
+
+        if (dx !== 0) s.setFlipX(dx < 0);
+        s.setPosition(sample.x, sample.y);
+        this.prevRemotePos[id] = { x: sample.x, y: sample.y };
+      }
     }
 
     shutdown() {
