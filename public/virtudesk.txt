@@ -1,0 +1,15 @@
+Table: rooms
+-----------------------------------------
+id           UUID          Primary Key
+org_id       TEXT
+title        TEXT
+imageUrl     TEXT
+created_at   TIMESTAMPTZ   Default: NOW()
+author_id    TEXT
+author_name  TEXT
+
+Table: user_characters
+-----------------------------------------
+user_id       TEXT         Primary Key (Clerk user ID)
+character_id  TEXT         Not Null
+updated_at    TIMESTAMPTZ  Default: NOW()

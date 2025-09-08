@@ -2,6 +2,7 @@
 export interface CharacterSprite {
   name: string;
   folderPath: string;
+  image: string;
   idleFrames: number;
   walkFrames: number;
   runFrames: number;
@@ -17,6 +18,7 @@ export const AVAILABLE_SPRITES: CharacterSprite[] = [
   {
     name: 'Pink_Monster',
     folderPath: '/sprites/char1',
+    image:'/sprites/char1/Pink_Monster.png',
     idleFrames: 4,
     walkFrames: 6,
     runFrames: 6,
@@ -29,6 +31,7 @@ export const AVAILABLE_SPRITES: CharacterSprite[] = [
   {
     name: 'Owlet_Monster',
     folderPath: '/sprites/char2',
+    image:'/sprites/char2/Owlet_Monster.png',
     idleFrames: 4,
     walkFrames: 6,
     runFrames: 6,
@@ -41,6 +44,7 @@ export const AVAILABLE_SPRITES: CharacterSprite[] = [
   {
     name: 'Dude_Monster',
     folderPath: '/sprites/char3',
+    image:'/sprites/char3/Dude_Monster.png',
     idleFrames: 4,
     walkFrames: 6,
     runFrames: 6,
