@@ -17,8 +17,8 @@ export interface CharacterSprite {
 export const AVAILABLE_SPRITES: CharacterSprite[] = [
   {
     name: 'Pink_Monster',
-    folderPath: '/sprites/char1',
-    image:'/sprites/char1/Pink_Monster.png',
+    folderPath: '/sprites/char1',  // Back to absolute path
+    image: '/sprites/char1/Pink_Monster.png',
     idleFrames: 4,
     walkFrames: 6,
     runFrames: 6,
@@ -30,8 +30,8 @@ export const AVAILABLE_SPRITES: CharacterSprite[] = [
   },
   {
     name: 'Owlet_Monster',
-    folderPath: '/sprites/char2',
-    image:'/sprites/char2/Owlet_Monster.png',
+    folderPath: '/sprites/char2',  // Back to absolute path
+    image: '/sprites/char2/Owlet_Monster.png',
     idleFrames: 4,
     walkFrames: 6,
     runFrames: 6,
@@ -43,8 +43,8 @@ export const AVAILABLE_SPRITES: CharacterSprite[] = [
   },
   {
     name: 'Dude_Monster',
-    folderPath: '/sprites/char3',
-    image:'/sprites/char3/Dude_Monster.png',
+    folderPath: '/sprites/char3',  // Back to absolute path
+    image: '/sprites/char3/Dude_Monster.png',
     idleFrames: 4,
     walkFrames: 6,
     runFrames: 6,
@@ -78,13 +78,6 @@ export function getCharacterByName(name: string): CharacterSprite | undefined {
 
 // Store selected character for consistency across game sessions
 let selectedCharacter: CharacterSprite | null = null;
-
-// export function getOrSelectCharacter(): CharacterSprite {
-//   if (!selectedCharacter) {
-//     selectedCharacter = getRandomCharacterSprite();
-//   }
-//   return selectedCharacter;
-// }
 
 // Reset character selection (useful for new sessions)
 export function resetCharacterSelection(): void {
