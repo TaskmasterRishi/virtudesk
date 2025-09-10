@@ -25,17 +25,12 @@ export class PlayerMovement {
     if (!this.player || !this.cursors) return;
 
     let vx = 0, vy = 0;
-    // Arrow keys
-    if (this.cursors.left?.isDown) vx -= 1;
-    if (this.cursors.right?.isDown) vx += 1;
-    if (this.cursors.up?.isDown) vy -= 1;
-    if (this.cursors.down?.isDown) vy += 1;
-    // WASD keys
-    if (this.wasd?.A?.isDown) vx -= 1;
-    if (this.wasd?.D?.isDown) vx += 1;
-    if (this.wasd?.W?.isDown) vy -= 1;
-    if (this.wasd?.S?.isDown) vy += 1;
-
+    // Arrow and WASD keys
+    if (this.cursors.left?.isDown || this.wasd?.A?.isDown) vx -= 1;
+    if (this.cursors.right?.isDown || this.wasd?.D?.isDown) vx += 1;
+    if (this.cursors.up?.isDown || this.wasd?.W?.isDown) vy -= 1;
+    if (this.cursors.down?.isDown || this.wasd?.S?.isDown) vy += 1;
+    
     // Normalize diagonal movement
     if (vx && vy) {
       const norm = Math.SQRT1_2;
