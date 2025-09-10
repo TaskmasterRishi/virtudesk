@@ -14,7 +14,7 @@ if (typeof window !== "undefined") {
   window.addEventListener("beforeunload", () => {
     destroyRealtime();
   });
-  window.addEventListener("pagehide", () => {
+  window.addEventListener("popstate", () => {
     destroyRealtime();
   });
 }
