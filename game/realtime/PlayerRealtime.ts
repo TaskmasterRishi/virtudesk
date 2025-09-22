@@ -2,7 +2,7 @@
 // Supabase realtime networking for player positions.
 // - Connects to a room channel
 // - Throttles + broadcasts local positions
-// - Broadcasts player meta (name, character) on join & on meta-requests
+// - Broadcasts player meta (name, character, avatar) on join & on meta-requests
 // - Handshakes: new client sends "meta-req", others reply with "player-meta"
 // - Receives remote positions -> per-player bounded queues
 // - Exposes queues + meta + subscription helpers
@@ -21,6 +21,7 @@ export type PlayerMeta = {
   userId: string;
   name?: string;
   character?: string;
+  avatar?: string;
 };
 
 export type PlayerPosPayload = {
@@ -30,11 +31,12 @@ export type PlayerPosPayload = {
   ts: number;
   name?: string;
   character?: string;
+  avatar?: string;
 };
 
 type PositionSample = { x: number; y: number; ts: number };
 type QueueMap = Map<string, PositionSample[]>;
-type PlayerMetaInfo = { name?: string; character?: string };
+type PlayerMetaInfo = { name?: string; character?: string; avatar?: string };
 
 export type ChatMessage = {
   id: string; // Unique message ID
@@ -53,6 +55,7 @@ let myMetaRef: PlayerMetaInfo = {};
 const positionQueues: QueueMap = new Map();
 const metaCache = new Map<string, PlayerMetaInfo>();
 const chatMessageSubscribers = new Set<(message: ChatMessage) => void>();
+const lastSeen = new Map<string, number>();
 
 // Subscribers
 type UpdateCb = (playerId: string, pos: PositionSample) => void;
@@ -396,6 +399,7 @@ export async function initRealtime(opts: {
   channel.on("broadcast", { event: "player-pos" }, (payload) => {
     const data = payload.payload as { playerId: string; x: number; y: number; ts?: number };
     if (!data?.playerId || data.playerId === playerIdRef) return;
+    lastSeen.set(data.playerId, Date.now());
     const sample: PositionSample = { x: data.x, y: data.y, ts: data.ts ?? Date.now() };
     pushToQueue(data.playerId, sample);
     updateSubscribers.forEach((cb) => cb(data.playerId, sample));
@@ -410,9 +414,10 @@ export async function initRealtime(opts: {
 
   // --- Meta updates ---
   channel.on("broadcast", { event: "player-meta" }, (payload) => {
-    const data = payload.payload as { playerId: string; name?: string; character?: string };
+    const data = payload.payload as { playerId: string; name?: string; character?: string; avatar?: string };
     if (!data?.playerId || data.playerId === playerIdRef) return;
-    const next: PlayerMetaInfo = { name: data.name, character: data.character };
+    lastSeen.set(data.playerId, Date.now());
+    const next: PlayerMetaInfo = { name: data.name, character: data.character, avatar: data.avatar };
     metaCache.set(data.playerId, next);
     metaSubscribers.forEach((cb) => cb(data.playerId, next));
 
@@ -487,7 +492,7 @@ export async function initRealtime(opts: {
       try { await initAudio(); } catch {}
 
       // send meta so others learn about us
-      if (myMetaRef && (myMetaRef.name || myMetaRef.character)) {
+      if (myMetaRef && (myMetaRef.name || myMetaRef.character || myMetaRef.avatar)) {
         sendPlayerMeta(myMetaRef);
       }
       safeSend("meta-req", { from: playerIdRef });
@@ -495,6 +500,20 @@ export async function initRealtime(opts: {
       // Do not auto-call existing players
     }
   });
+
+  // --- Periodic cleanup of stale players ---
+  setInterval(() => {
+    const now = Date.now();
+    const TIMEOUT = 10000; // 10 seconds
+    for (const [id, ts] of lastSeen.entries()) {
+      if (id === playerIdRef) continue; // never remove self
+      if (now - ts > TIMEOUT) {
+        lastSeen.delete(id);
+        metaCache.delete(id);
+        positionQueues.delete(id);
+      }
+    }
+  }, 2000);
 }
 
 // --- Sending ---
@@ -676,7 +695,7 @@ export function createPlayerRealtime(options: {
   void initRealtime({
     roomId,
     playerId: me.userId,
-    meta: { name: me.name, character: me.character },
+    meta: { name: me.name, character: me.character, avatar: me.avatar },
   }).then(() => {
     handlers?.onPresenceSync?.({});
   });
@@ -691,6 +710,7 @@ export function createPlayerRealtime(options: {
       ts: pos.ts,
       name: meta?.name,
       character: meta?.character,
+      avatar: meta?.avatar,
     });
   });
 
@@ -708,15 +728,15 @@ export function createPlayerRealtime(options: {
 }
 
 // --- Utilities for UI ---
-export function getAllPlayers(): Array<{ id: string; name?: string; character?: string }> {
+export function getAllPlayers(): Array<{ id: string; name?: string; character?: string; avatar?: string }> {
   const ids = new Set<string>();
   metaCache.forEach((_v, k) => ids.add(k));
   positionQueues.forEach((_v, k) => ids.add(k));
   if (playerIdRef) ids.add(playerIdRef);
-  const out: Array<{ id: string; name?: string; character?: string }> = [];
+  const out: Array<{ id: string; name?: string; character?: string; avatar?: string }> = [];
   ids.forEach((id) => {
     const meta = metaCache.get(id) ?? {};
-    out.push({ id, name: meta.name, character: meta.character });
+    out.push({ id, name: meta.name, character: meta.character, avatar: meta.avatar });
   });
   return out;
 }

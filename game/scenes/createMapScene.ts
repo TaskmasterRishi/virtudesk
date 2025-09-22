@@ -181,6 +181,11 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
       x?: number,
       y?: number
     ) {
+      // Check if scene is still active
+      if (!this.add || !this.scene || typeof this.scene.isActive !== "function" || this.scene.isActive() === false) {
+        return null;
+      }
+
       let s = this.remotePlayers[userId];
       const char = characterName ? (getCharacterByName(characterName) ?? AVAILABLE_SPRITES[0]) : (this.perPlayerChar[userId] ?? AVAILABLE_SPRITES[0]);
       this.perPlayerChar[userId] = char;
@@ -236,6 +241,7 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
           userId: opts.userId,
           name: opts.name,
           character: this.selectedCharacter.name,
+          avatar: opts.avatarUrl,
         },
         handlers: {
           onPlayerPos: (p) => {

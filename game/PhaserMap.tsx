@@ -18,7 +18,7 @@ export default function PhaserMap({ roomId }: { roomId: string }) {
     return {
       userId: user?.id ?? 'anon',
       name,
-      avatarUrl: '', // No longer using Clerk avatar for main player - using random sprite instead
+      avatarUrl: user?.imageUrl ?? '',
     }
   }, [user])
 
