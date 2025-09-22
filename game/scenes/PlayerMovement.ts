@@ -1,3 +1,4 @@
+import { getChatInputFocus } from '../chatState';
 
 export class PlayerMovement {
   private animationKeys: {
@@ -24,12 +25,25 @@ export class PlayerMovement {
   update(_: number, __: number) {
     if (!this.player || !this.cursors) return;
 
+    if (getChatInputFocus()) {
+      this.player.setVelocity(0, 0);
+      if (this.player.anims?.animationManager?.exists(this.animationKeys.idle)) {
+        if (this.player.anims?.currentAnim?.key !== this.animationKeys.idle) {
+          this.player.anims.play(this.animationKeys.idle, true);
+        }
+      }
+      return;
+    }
+
     let vx = 0, vy = 0;
     // Arrow and WASD keys
-    if (this.cursors.left?.isDown || this.wasd?.A?.isDown) vx -= 1;
-    if (this.cursors.right?.isDown || this.wasd?.D?.isDown) vx += 1;
-    if (this.cursors.up?.isDown || this.wasd?.W?.isDown) vy -= 1;
-    if (this.cursors.down?.isDown || this.wasd?.S?.isDown) vy += 1;
+    // Only check for movement keys if chat input is NOT focused
+    if (!getChatInputFocus()) {
+      if (this.cursors.left?.isDown || this.wasd?.A?.isDown) vx -= 1;
+      if (this.cursors.right?.isDown || this.wasd?.D?.isDown) vx += 1;
+      if (this.cursors.up?.isDown || this.wasd?.W?.isDown) vy -= 1;
+      if (this.cursors.down?.isDown || this.wasd?.S?.isDown) vy += 1;
+    }
     
     // Normalize diagonal movement
     if (vx && vy) {
