@@ -65,10 +65,10 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
 
     preload() {
       this.load.crossOrigin = "anonymous";  // Keep if needed for external assets
-      this.load.image("tiles", "/assests/tiles2.png", {
+      this.load.image("tiles", "/assests/tiles.png", {
         scaleMode: Phaser.ScaleModes.NEAREST,
       });
-      this.load.tilemapTiledJSON("map", "/assests/map2.json");
+      this.load.tilemapTiledJSON("map", "/assests/map1.json");
 
       // Preload all characters to avoid async race with Supabase fetch
       this.loadAllCharacters();
@@ -400,7 +400,7 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
         this.createPlayerAt(spawnX, spawnY, this.tileW, this.tileH);
         this.initRealtime();
       } catch {
-        const json = await fetch("/assests/map2.json").then((r) => r.json());
+        const json = await fetch("/assests/map1.json").then((r) => r.json());
         const { map, tileW, tileH } = this.createMapFromJSON(json);
         this.mapW = map.widthInPixels;
         this.mapH = map.heightInPixels;
