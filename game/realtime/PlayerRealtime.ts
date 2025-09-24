@@ -38,6 +38,14 @@ type PositionSample = { x: number; y: number; ts: number };
 type QueueMap = Map<string, PositionSample[]>;
 type PlayerMetaInfo = { name?: string; character?: string; avatar?: string };
 
+export type ChatMessage = {
+  id: string; // Unique message ID
+  senderId: string;
+  senderName?: string;
+  message: string;
+  timestamp: number;
+};
+
 // --- State ---
 let channel: RealtimeChannel | null = null;
 let roomIdRef: string | null = null;
@@ -46,6 +54,7 @@ let myMetaRef: PlayerMetaInfo = {};
 
 const positionQueues: QueueMap = new Map();
 const metaCache = new Map<string, PlayerMetaInfo>();
+const chatMessageSubscribers = new Set<(message: ChatMessage) => void>();
 const lastSeen = new Map<string, number>();
 
 // Subscribers
@@ -418,6 +427,12 @@ export async function initRealtime(opts: {
     }
   });
 
+  // --- Chat messages ---
+  channel.on("broadcast", { event: "chat-message" }, (payload) => {
+    const message = payload.payload as ChatMessage;
+    chatMessageSubscribers.forEach((cb) => cb(message));
+  });
+
   // --- Meta request (handshake) ---
   channel.on("broadcast", { event: "meta-req" }, (payload) => {
     const data = payload.payload as { from?: string };
@@ -534,6 +549,18 @@ export function sendPosition(x: number, y: number) {
   if (myPos) updateAudioVolumes(myPos);
 }
 
+export function sendChatMessage(message: string) {
+  if (!channel || !playerIdRef) return;
+  const chatMessage: ChatMessage = {
+    id: Math.random().toString(36).substring(2, 9), // Simple unique ID
+    senderId: playerIdRef,
+    senderName: myMetaRef.name,
+    message,
+    timestamp: Date.now(),
+  };
+  safeSend("chat-message", chatMessage);
+}
+
 export function sendPlayerMeta(meta: PlayerMetaInfo) {
   if (!channel || !playerIdRef) return;
   myMetaRef = { ...myMetaRef, ...meta };
@@ -551,6 +578,11 @@ export function onPlayerUpdate(cb: UpdateCb) {
 export function onPlayerMeta(cb: (playerId: string, meta: PlayerMetaInfo) => void) {
   metaSubscribers.add(cb);
   return () => { metaSubscribers.delete(cb) }
+}
+
+export function onChatMessage(cb: (message: ChatMessage) => void) {
+  chatMessageSubscribers.add(cb);
+  return () => { chatMessageSubscribers.delete(cb) }
 }
 
 export function getPlayerMeta(playerId: string) {
@@ -588,6 +620,9 @@ export async function destroyRealtime() {
     clearTimeout(sendTimer);
     sendTimer = null;
   }
+
+  // Clear chat subscribers
+  chatMessageSubscribers.clear();
 
   // Close & stop peer connections and their tracks (senders & receivers)
   peerConnections.forEach((pc) => {

@@ -5,6 +5,7 @@ import {LoaderTwo } from '@/components/ui/loader'
 import LeaveRoomButton from './LeaveRoomButton'
 import PlayersPanel from './PlayersPanel'
 import VideoCallModal from './VideoCallModal'
+import TextChat from './TextChat'
 
 export default async function RoomPage({ params }: { params: Promise<{ roomId: string }> }) {
   const { roomId } = await params
@@ -16,6 +17,7 @@ export default async function RoomPage({ params }: { params: Promise<{ roomId: s
       </div>
       <PlayersPanel />
       <VideoCallModal />
+      <TextChat />
       <Suspense fallback={<div className="w-full h-screen flex items-center justify-center"><LoaderTwo/></div>}>
         <PhaserMap roomId={roomId} />
       </Suspense>

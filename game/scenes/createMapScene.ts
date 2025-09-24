@@ -10,6 +10,7 @@ import {
   CharacterSprite,
 } from "../utils/spriteUtils";
 import { supabase } from "@/utils/supabase/client";
+import { onChatInputFocusChange } from "../chatState"; // Import onChatInputFocusChange
 
 export interface MapSceneOptions {
   roomId: string;
@@ -356,6 +357,14 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
 
       this.cursors = keyboard.createCursorKeys();
       this.wasd = keyboard.addKeys("W,A,S,D");
+
+      // Subscribe to chat focus changes to enable/disable Phaser input
+      const offChatFocus = onChatInputFocusChange((isFocused) => {
+        if (keyboard) {
+          keyboard.enabled = !isFocused;
+        }
+      });
+      this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => offChatFocus());
 
       try {
         const map = this.make.tilemap({ key: "map" });
