@@ -1,7 +1,13 @@
+'use client'
+
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
+import { createCheckoutSession } from "@/app/actions/payment"
+import { useUser } from "@clerk/nextjs"
+import { useState } from "react"
+import { useRouter } from "next/navigation"
 
 const tiers = [
   {
@@ -11,6 +17,7 @@ const tiers = [
     period: "/month",
     highlight: false,
     cta: "Get started",
+    priceId: null, // Free plan
     features: [
       "1 project",
       "Community support",
@@ -25,6 +32,7 @@ const tiers = [
     period: "/month",
     highlight: true,
     cta: "Upgrade to Pro",
+    priceId: process.env.NEXT_PUBLIC_STRIPE_PRO_PRICE_ID || "price_pro_monthly",
     features: [
       "Unlimited projects",
       "Priority support",
@@ -39,6 +47,7 @@ const tiers = [
     period: "",
     highlight: false,
     cta: "Contact sales",
+    priceId: null, // Custom pricing
     features: [
       "Uptime SLA",
       "SAML SSO",
@@ -57,8 +66,50 @@ function CheckIcon(props: React.SVGProps<SVGSVGElement>) {
 }
 
 export default function PricingPage() {
+  const { user, isSignedIn } = useUser()
+  const [loading, setLoading] = useState<string | null>(null)
+  const router = useRouter()
+
+  const handlePlanSelect = async (tier: typeof tiers[0]) => {
+    if (!isSignedIn) {
+      router.push('/sign-in')
+      return
+    }
+
+    if (tier.name === 'Starter') {
+      // Free plan - redirect to dashboard
+      router.push('/dashboard')
+      return
+    }
+
+    if (tier.name === 'Enterprise') {
+      // Custom pricing - redirect to contact or show modal
+      window.open('mailto:sales@virtudesk.com?subject=Enterprise Plan Inquiry', '_blank')
+      return
+    }
+
+    if (!tier.priceId) {
+      console.error('Price ID not found for tier:', tier.name)
+      return
+    }
+
+    setLoading(tier.name)
+    
+    try {
+      const result = await createCheckoutSession(tier.priceId, tier.name)
+      if (result.url) {
+        window.location.href = result.url
+      }
+    } catch (error) {
+      console.error('Error creating checkout session:', error)
+      alert('Failed to start checkout. Please try again.')
+    } finally {
+      setLoading(null)
+    }
+  }
+
   return (
-    <section className="mx-auto w-full max-w-6xl px-4 py-16 sm:px-6 lg:px-8">
+    <section className="mx-auto w-full max-w-6xl px-4 pt-24 pb-16 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-3xl text-center">
         {/* <Badge className="mb-4">Pricing</Badge> */}
         <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">Simple, transparent plans</h1>
@@ -101,16 +152,28 @@ export default function PricingPage() {
               </ul>
             </CardContent>
             <CardFooter>
-              <Button className="w-full transition-transform duration-300 hover:translate-y-[-2px]" variant={tier.highlight ? "default" : "outline"}>{tier.cta}</Button>
+              <Button 
+                className="w-full transition-transform duration-300 hover:translate-y-[-2px]" 
+                variant={tier.highlight ? "default" : "outline"}
+                onClick={() => handlePlanSelect(tier)}
+                disabled={loading === tier.name}
+              >
+                {loading === tier.name ? "Processing..." : tier.cta}
+              </Button>
             </CardFooter>
           </Card>
         ))}
       </div>
 
       <div className="mx-auto mt-12 max-w-3xl rounded-lg border p-6 text-center shadow-xs">
-        <p className="text-sm text-muted-foreground">Need a custom plan? We’ll tailor VirtuDesk for your team.</p>
+        <p className="text-sm text-muted-foreground">Need a custom plan? We'll tailor VirtuDesk for your team.</p>
         <div className="mt-4">
-          <Button variant="ghost">Talk to sales</Button>
+          <Button 
+            variant="ghost"
+            onClick={() => window.open('mailto:sales@virtudesk.com?subject=Custom Plan Inquiry', '_blank')}
+          >
+            Talk to sales
+          </Button>
         </div>
       </div>
     </section>

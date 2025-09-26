@@ -5,6 +5,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useOrganization } from '@clerk/nextjs';
 import { useRoomStore } from '@/app/stores/roomStore';
 import CreateRoomBtn from './_components/CreateRoomBtn';
+import SubscriptionManager from './_components/SubscriptionManager';
 
 export type Rooms = {
   id: string;
@@ -43,21 +44,29 @@ const page = () => {
   }
 
   return (
-    <div className="w-full flex justify-center">
-      <div className="flex flex-wrap justify-start gap-5 w-full">
-        <CreateRoomBtn/>
-        {rooms.map((room, index) => (
-          <RoomCard
-            key={room.id}
-            id={room.id}
-            imageUrl={room.imageUrl}
-            title={room.title}
-            created_at={room.created_at}
-            author_name={room.author_name || ''}
-            org={organization?.name || ''}
-            index={index + 1}
-          />
-        ))}
+    <div className="w-full space-y-6">
+      {/* Subscription Manager */}
+      <div className="max-w-md">
+        <SubscriptionManager />
+      </div>
+      
+      {/* Rooms Section */}
+      <div className="w-full flex justify-center">
+        <div className="flex flex-wrap justify-start gap-5 w-full">
+          <CreateRoomBtn/>
+          {rooms.map((room, index) => (
+            <RoomCard
+              key={room.id}
+              id={room.id}
+              imageUrl={room.imageUrl}
+              title={room.title}
+              created_at={room.created_at}
+              author_name={room.author_name || ''}
+              org={organization?.name || ''}
+              index={index + 1}
+            />
+          ))}
+        </div>
       </div>
     </div>
   );
