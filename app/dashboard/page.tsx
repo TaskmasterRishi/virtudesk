@@ -46,9 +46,9 @@ const page = () => {
   return (
     <div className="w-full space-y-6">
       {/* Subscription Manager */}
-      <div className="max-w-md">
+      {/* <div className="max-w-md">
         <SubscriptionManager />
-      </div>
+      </div> */}
       
       {/* Rooms Section */}
       <div className="w-full flex justify-center">

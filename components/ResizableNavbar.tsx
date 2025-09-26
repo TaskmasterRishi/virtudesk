@@ -24,7 +24,7 @@ export function ResizableNavbar() {
     () => [
       {
         name: "Features",
-        link: "#features",
+        link: "/#features",
       },
       {
         name: "Pricing",
@@ -32,7 +32,7 @@ export function ResizableNavbar() {
       },
       {
         name: "Contact",
-        link: "#contact",
+        link: "/contact",
       },
     ],
     []
@@ -86,7 +86,19 @@ export function ResizableNavbar() {
               <motion.a
                 key={`mobile-link-${idx}`}
                 href={item.link}
-                onClick={() => setIsMobileMenuOpen(false)}
+                onClick={(e) => {
+                  if (item.link.startsWith('#')) {
+                    e.preventDefault();
+                    const target = document.querySelector(item.link) as HTMLElement | null;
+                    if (target) {
+                      const y = target.getBoundingClientRect().top + window.pageYOffset - 80;
+                      window.scrollTo({ top: y, behavior: 'smooth' });
+                    }
+                    setIsMobileMenuOpen(false);
+                  } else {
+                    setIsMobileMenuOpen(false);
+                  }
+                }}
                 className="relative text-neutral-600 dark:text-neutral-300"
                 initial={{ opacity: 0, x: -20 }}
                 animate={{ opacity: 1, x: 0 }}

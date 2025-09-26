@@ -26,6 +26,27 @@ const HomePage = () => {
         <Suspense fallback={<div>Loading...</div>}>
           <WorldMapDotted />
         </Suspense>
+        {/* Features Section anchored for navbar */}
+        <section id="features" className="px-4 sm:px-6 lg:px-8 py-16 scroll-mt-24">
+          <div className="max-w-6xl mx-auto text-center">
+            <h2 className="text-3xl sm:text-4xl font-bold tracking-tight">Everything your remote team needs</h2>
+            <p className="mt-3 text-muted-foreground">Build your virtual office with rooms, video chat, and collaboration tools.</p>
+          </div>
+          <div className="mt-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-3 max-w-6xl mx-auto">
+            <div className="rounded-xl border p-6">
+              <h3 className="font-semibold text-lg">Virtual Rooms</h3>
+              <p className="text-sm text-muted-foreground mt-2">Create rooms for meetings, focus time, or team hangouts with presence.</p>
+            </div>
+            <div className="rounded-xl border p-6">
+              <h3 className="font-semibold text-lg">Realtime Collaboration</h3>
+              <p className="text-sm text-muted-foreground mt-2">Move, chat, and collaborate in real-time with a delightful experience.</p>
+            </div>
+            <div className="rounded-xl border p-6">
+              <h3 className="font-semibold text-lg">Organization Management</h3>
+              <p className="text-sm text-muted-foreground mt-2">Organize teams, invite members, and manage access with ease.</p>
+            </div>
+          </div>
+        </section>
         {/* Static components render immediately */}
         <AppDemoSection />
         <Testimonials />

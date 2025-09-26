@@ -51,26 +51,16 @@ export async function createCustomerPortalSession() {
   }
 
   try {
-    // First, find or create a Stripe customer
-    const customers = await stripe.customers.list({
-      email: undefined, // We'll need to get this from Clerk
-      limit: 1,
-    })
-
-    let customer
-    if (customers.data.length === 0) {
-      // Create new customer
-      customer = await stripe.customers.create({
-        metadata: {
-          userId,
-        },
-      })
-    } else {
-      customer = customers.data[0]
+    // Find active subscription for this user from metadata
+    const subs = await stripe.subscriptions.list({ status: 'active', limit: 100 })
+    const sub = subs.data.find(s => s.metadata?.userId === userId)
+    if (!sub) {
+      throw new Error('No active subscription found')
     }
+    const customerId = typeof sub.customer === 'string' ? sub.customer : sub.customer.id
 
     const session = await stripe.billingPortal.sessions.create({
-      customer: customer.id,
+      customer: customerId,
       return_url: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard`,
     })
 
@@ -78,6 +68,25 @@ export async function createCustomerPortalSession() {
   } catch (error) {
     console.error('Error creating customer portal session:', error)
     throw new Error('Failed to create customer portal session')
+  }
+}
+
+export async function cancelSubscription() {
+  const { userId } = await auth()
+  if (!userId) {
+    redirect('/sign-in')
+  }
+  try {
+    const subs = await stripe.subscriptions.list({ status: 'active', limit: 100 })
+    const sub = subs.data.find(s => s.metadata?.userId === userId)
+    if (!sub) {
+      throw new Error('No active subscription to cancel')
+    }
+    const updated = await stripe.subscriptions.update(sub.id, { cancel_at_period_end: true })
+    return { ok: true, cancelAt: updated.cancel_at || updated.current_period_end }
+  } catch (error) {
+    console.error('Error cancelling subscription:', error)
+    throw new Error('Failed to cancel subscription')
   }
 }
 

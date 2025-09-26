@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { createCustomerPortalSession } from '@/app/actions/payment'
+import { createCustomerPortalSession, cancelSubscription } from '@/app/actions/payment'
 import { CreditCard, Crown, Settings } from 'lucide-react'
 
 interface SubscriptionStatus {
@@ -21,25 +21,27 @@ export default function SubscriptionManager() {
   })
   const [loading, setLoading] = useState(true)
   const [portalLoading, setPortalLoading] = useState(false)
+  const [cancelLoading, setCancelLoading] = useState(false)
 
   useEffect(() => {
-    // In a real app, you'd fetch this from your API
-    // For now, we'll simulate it
     const checkSubscription = async () => {
       try {
-        // This would be an API call to get subscription status
-        // For demo purposes, we'll assume free plan
+        const res = await fetch('/api/subscription', { cache: 'no-store' })
+        if (!res.ok) throw new Error('Failed to load subscription')
+        const data = await res.json()
         setSubscription({
-          hasActiveSubscription: false,
-          plan: 'Starter'
+          hasActiveSubscription: data.hasActiveSubscription,
+          plan: data.plan,
+          subscriptionId: data.subscriptionId,
+          currentPeriodEnd: data.currentPeriodEnd,
         })
       } catch (error) {
         console.error('Error fetching subscription:', error)
+        setSubscription({ hasActiveSubscription: false, plan: 'Starter' })
       } finally {
         setLoading(false)
       }
     }
-
     checkSubscription()
   }, [])
 
@@ -55,6 +57,29 @@ export default function SubscriptionManager() {
       alert('Failed to open subscription management. Please try again.')
     } finally {
       setPortalLoading(false)
+    }
+  }
+
+  const handleCancelSubscription = async () => {
+    setCancelLoading(true)
+    try {
+      const res = await cancelSubscription()
+      alert('Subscription will cancel at end of current period.')
+      // refresh status
+      setLoading(true)
+      const r = await fetch('/api/subscription', { cache: 'no-store' })
+      const data = await r.json()
+      setSubscription({
+        hasActiveSubscription: data.hasActiveSubscription,
+        plan: data.plan,
+        subscriptionId: data.subscriptionId,
+        currentPeriodEnd: data.currentPeriodEnd,
+      })
+    } catch (e) {
+      alert('Failed to cancel subscription')
+    } finally {
+      setCancelLoading(false)
+      setLoading(false)
     }
   }
 
@@ -145,6 +170,16 @@ export default function SubscriptionManager() {
               className="w-full"
             >
               Upgrade to Pro
+            </Button>
+          )}
+          {subscription.hasActiveSubscription && (
+            <Button 
+              onClick={handleCancelSubscription}
+              disabled={cancelLoading}
+              variant="destructive"
+              className="w-full"
+            >
+              {cancelLoading ? 'Cancelling...' : 'Cancel Subscription'}
             </Button>
           )}
         </div>

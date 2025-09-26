@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { createCheckoutSession } from "@/app/actions/payment"
 import { useUser } from "@clerk/nextjs"
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 
 const tiers = [
@@ -69,6 +69,22 @@ export default function PricingPage() {
   const { user, isSignedIn } = useUser()
   const [loading, setLoading] = useState<string | null>(null)
   const router = useRouter()
+
+  const [activePlan, setActivePlan] = useState<string | null>(null)
+  const [hasActiveSubscription, setHasActiveSubscription] = useState(false)
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch('/api/subscription', { cache: 'no-store' })
+        if (res.ok) {
+          const data = await res.json()
+          setActivePlan(data.plan)
+          setHasActiveSubscription(!!data.hasActiveSubscription)
+        }
+      } catch {}
+    })()
+  }, [])
 
   const handlePlanSelect = async (tier: typeof tiers[0]) => {
     if (!isSignedIn) {
@@ -156,9 +172,9 @@ export default function PricingPage() {
                 className="w-full transition-transform duration-300 hover:translate-y-[-2px]" 
                 variant={tier.highlight ? "default" : "outline"}
                 onClick={() => handlePlanSelect(tier)}
-                disabled={loading === tier.name}
+                disabled={loading === tier.name || (hasActiveSubscription && activePlan === tier.name)}
               >
-                {loading === tier.name ? "Processing..." : tier.cta}
+                {hasActiveSubscription && activePlan === tier.name ? 'Current plan' : (loading === tier.name ? "Processing..." : tier.cta)}
               </Button>
             </CardFooter>
           </Card>
