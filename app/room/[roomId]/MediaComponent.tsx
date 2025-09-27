@@ -62,9 +62,7 @@ export default function  MediaComponent(){
    },[participants])
       
         return<>
-            <button style={{height:"50px",width:"50px",backgroundColor:"white",display:"block"}} onClick={()=>{
-                MediaElementRef.current.forEach( (r)=>{ r?.play().then((val)=>{console.log("is playing")})})
-                }}></button>
+           
             {participants.map((participant,index)=>{
                 console.log(participant,RTCEventEmitter.listenerCount("onTrack"))
                 if(MediaElementRef.current[index]){
