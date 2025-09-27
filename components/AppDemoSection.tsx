@@ -4,7 +4,7 @@ import { motion } from 'framer-motion'
 
 const AppDemoSection = () => {
   return (
-    <div className="flex flex-col gap-8 m-10 pb-10">
+    <div className="flex flex-col gap-12 px-4 sm:px-6 lg:px-8 py-16">
       {/* First row: Image on the left (slides in from left), content on the right (slides in from right) */}
       <div className="flex flex-col md:flex-row gap-8 items-center">
         <motion.div
@@ -12,9 +12,9 @@ const AppDemoSection = () => {
           whileInView={{ opacity: 1, x: 0 }}
           viewport={{ once: true }}
           transition={{ duration: 0.5 }}
-          className="w-full md:w-1/3 bg-gray-200 rounded-lg flex items-center justify-center h-64"
+          className="w-full md:w-1/2"
         >
-          <span className="text-gray-500">Image Placeholder</span>
+          <img src="/thumbnails/5.jpeg" alt="Team collaboration" className="rounded-xl w-full h-64 object-contain" />
         </motion.div>
         <motion.div
           initial={{ opacity: 0, x: 50 }}
@@ -23,9 +23,13 @@ const AppDemoSection = () => {
           transition={{ duration: 0.5 }}
           className="w-full md:w-1/2"
         >
-          <p className="text-lg">
-            This is a description of the demo section. You can replace this with any relevant text.
-          </p>
+          <h3 className="text-2xl font-semibold">Build your virtual office</h3>
+          <p className="text-muted-foreground mt-2">Create organizations and rooms, invite your team, and work together in real-time with presence, chat, and video.</p>
+          <ul className="mt-4 space-y-2 text-sm">
+            <li>• Create unlimited rooms on Pro</li>
+            <li>• Real-time movement and chat</li>
+            <li>• Organization-level member management</li>
+          </ul>
         </motion.div>
       </div>
 
@@ -36,20 +40,25 @@ const AppDemoSection = () => {
           whileInView={{ opacity: 1, x: 0 }}
           viewport={{ once: true }}
           transition={{ duration: 0.5 }}
-          className="w-full md:w-1/3 order-2 md:order-1"
+          className="w-full md:w-1/2 order-2 md:order-1"
         >
-          <p className="text-lg">
-            Another description for the second part of the demo section.
-          </p>
+          <h3 className="text-2xl font-semibold">Stay connected, from anywhere</h3>
+          <p className="text-muted-foreground mt-2">Jump into a room, collaborate on tasks, and keep your team aligned without calendar overhead.</p>
+          <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+            <div className="rounded-lg border p-3">Presence indicators</div>
+            <div className="rounded-lg border p-3">Text and video chat</div>
+            <div className="rounded-lg border p-3">Customizable avatars</div>
+            <div className="rounded-lg border p-3">Org-level controls</div>
+          </div>
         </motion.div>
         <motion.div
           initial={{ opacity: 0, x: 50 }}
           whileInView={{ opacity: 1, x: 0 }}
           viewport={{ once: true }}
           transition={{ duration: 0.5 }}
-          className="w-full md:w-1/2 bg-gray-200 rounded-lg flex items-center justify-center h-64 order-1 md:order-2"
+          className="w-full md:w-1/2 order-1 md:order-2"
         >
-          <span className="text-gray-500">Image Placeholder</span>
+          <img src="/thumbnails/2.jpeg" alt="Rooms and collaboration" className="rounded-xl w-full h-64 object-contain" />
         </motion.div>
       </div>
     </div>

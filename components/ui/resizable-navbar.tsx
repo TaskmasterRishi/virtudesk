@@ -10,6 +10,7 @@ import {
 } from "framer-motion";
 
 import React, { useRef, useState, useEffect } from "react";
+import { usePathname } from "next/navigation";
 
 
 interface NavbarProps {
@@ -123,7 +124,18 @@ export const NavItems = React.memo(({ items, className, onItemClick }: NavItemsP
       {items.map((item, idx) => (
         <a
           onMouseEnter={() => setHovered(idx)}
-          onClick={onItemClick}
+          onClick={(e) => {
+            if (item.link.startsWith('#')) {
+              e.preventDefault();
+              const target = document.querySelector(item.link) as HTMLElement | null;
+              if (target) {
+                const y = target.getBoundingClientRect().top + window.pageYOffset - 80;
+                window.scrollTo({ top: y, behavior: 'smooth' });
+              }
+            } else if (onItemClick) {
+              onItemClick();
+            }
+          }}
           className="relative px-4 py-2 text-neutral-600 dark:text-neutral-300"
           key={`link-${idx}`}
           href={item.link}
@@ -228,9 +240,16 @@ export const MobileNavToggle = ({
 };
 
 export const NavbarLogo = () => {
+  const pathname = usePathname();
   return (
     <a
-      href="#"
+      href="/"
+      onClick={(e) => {
+        if (pathname === "/") {
+          e.preventDefault();
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+      }}
       className="relative z-20 mr-4 flex items-center space-x-2 px-2 py-1 text-sm font-normal text-black"
     >
       <img

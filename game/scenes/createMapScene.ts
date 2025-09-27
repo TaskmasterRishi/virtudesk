@@ -405,7 +405,7 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
 
         // Ensure animations exist for my char and create me
         const spawnX = this.mapW / 2;
-        const spawnY = this.mapH - 2 * this.tileH;
+        const spawnY = this.mapH / 2;
         this.createPlayerAt(spawnX, spawnY, this.tileW, this.tileH);
         this.initRealtime();
       } catch {
@@ -422,7 +422,7 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
         await this.pickUserCharacter();
 
         const spawnX = this.mapW / 2;
-        const spawnY = this.mapH - 2 * tileH;
+        const spawnY = this.mapH / 2;
         this.createPlayerAt(spawnX, spawnY, tileW, tileH);
         this.initRealtime();
       }
