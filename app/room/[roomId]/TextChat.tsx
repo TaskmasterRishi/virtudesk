@@ -7,7 +7,14 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { ChatMessage, onChatMessage, sendChatMessage, getSelfId, getPlayerMeta } from '@/game/realtime/PlayerRealtime'
 import { setChatInputFocus } from '@/game/chatState' // Import setChatInputFocus
 
-export default function TextChat() {
+type TextChatProps = {
+  embedded?: boolean
+  className?: string
+  title?: string
+  variant?: 'glass' | 'solid'
+}
+
+export default function TextChat({ embedded = false, className = '', title = 'Room Chat', variant = 'glass' }: TextChatProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [newMessage, setNewMessage] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -67,14 +74,24 @@ export default function TextChat() {
   }, [handleSendMessage])
 
   return (
-    <div className="absolute bottom-4 left-4 z-50 pointer-events-auto w-80">
-      <div className="bg-white/95 backdrop-blur border border-slate-200 rounded-md shadow-xl flex flex-col h-72" ref={chatBoxRef}>
-        <div className="p-3 border-b border-slate-200 text-sm font-semibold text-slate-700">Room Chat</div>
-        <ScrollArea className="flex-1 p-3">
+    <div className={`${embedded ? '' : 'absolute bottom-4 left-4 z-50 pointer-events-auto w-80'} ${className}`}>
+      <div className={`${embedded 
+          ? (variant === 'solid' 
+              ? 'bg-white border border-slate-200 rounded-md shadow' 
+              : 'bg-white/10 backdrop-blur-md border border-white/20 rounded-xl shadow-lg')
+          : 'bg-white/95 backdrop-blur border border-slate-200 rounded-md shadow-xl'} flex flex-col ${embedded ? 'h-full' : 'h-72'}`} ref={chatBoxRef}>
+        <div className={`${embedded 
+            ? (variant === 'solid' ? 'px-3 py-2 border-b border-slate-200 text-slate-700' : 'px-4 py-2 border-b border-white/20 text-white/90') 
+            : 'p-3 border-b border-slate-200 text-slate-700'} text-sm font-semibold`}>{title}</div>
+        <ScrollArea className="flex-1 p-2 overflow-y-auto">
           <div className="space-y-2">
             {messages.map((msg) => (
               <div key={msg.id} className={`flex ${msg.senderId === selfId ? 'justify-end' : 'justify-start'}`}>
-                <div className={`max-w-[75%] px-3 py-1.5 rounded-lg text-sm ${msg.senderId === selfId ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-800'}`}>
+                <div className={`max-w-[75%] px-3 py-1.5 rounded-lg text-sm ${msg.senderId === selfId 
+                    ? 'bg-indigo-600 text-white' 
+                    : embedded 
+                      ? (variant === 'solid' ? 'bg-slate-200 text-slate-800' : 'bg-white/20 text-white') 
+                      : 'bg-slate-200 text-slate-800'}`}>
                   <div className="font-semibold mb-0.5">{msg.senderId === selfId ? 'You' : msg.senderName || msg.senderId}</div>
                   <div>{msg.message}</div>
                   <div className="text-xs mt-1 opacity-75">{new Date(msg.timestamp).toLocaleTimeString()}</div>
@@ -84,7 +101,7 @@ export default function TextChat() {
             <div ref={messagesEndRef} />
           </div>
         </ScrollArea>
-        <div className="p-3 border-t border-slate-200 flex space-x-2">
+        <div className={`p-3 flex space-x-2 ${embedded ? (variant === 'solid' ? 'border-t border-slate-200' : 'border-t border-white/20') : 'border-t border-slate-200'}`}>
           <Input
             type="text"
             placeholder="Say something..."
@@ -93,7 +110,9 @@ export default function TextChat() {
             onKeyDown={handleKeyDown}
             onFocus={() => setChatInputFocus(true)} // Set focus state on focus
             onBlur={() => setChatInputFocus(false)} // Clear focus state on blur
-            className="flex-1"
+            className={`flex-1 ${embedded 
+                ? (variant === 'solid' ? '' : 'bg-white/10 placeholder-white/60 text-white border-white/20') 
+                : ''}`}
             ref={inputRef} // Attach inputRef to the input field
           />
           <Button onClick={handleSendMessage} className="bg-indigo-600 hover:bg-indigo-700 text-white">
