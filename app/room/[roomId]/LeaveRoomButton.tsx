@@ -23,6 +23,7 @@ export default function LeaveRoomButton() {
 	}, [isLeaving, router])
 
 	return (
+		
 		<div className="pointer-events-auto">
 			<Button
 				onClick={handleLeave}
