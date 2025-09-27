@@ -10,11 +10,18 @@
 
 import { RealtimeChannel } from "@supabase/supabase-js";
 import { supabase } from "@/utils/supabase/client";
+import { Dispatch, SetStateAction, useCallback } from "react";
+import { off } from "process";
+import { EventEmitter } from 'events';
+import Stream from "stream";
 
 if (typeof window !== "undefined") {
-  window.addEventListener("beforeunload", () => {
-    destroyRealtime();
-  });
+ window.addEventListener("popstate",async ()=>{
+  await destroyRealtime();
+ })
+ window.addEventListener("beforeunload",async ()=>{
+  await destroyRealtime();
+ })
 }
 
 export type PlayerMeta = {
@@ -62,6 +69,7 @@ type UpdateCb = (playerId: string, pos: PositionSample) => void;
 const updateSubscribers = new Set<UpdateCb>();
 const metaSubscribers = new Set<(playerId: string, meta: PlayerMetaInfo) => void>();
 
+
 // --- Throttle ---
 const SEND_HZ = 15;
 const SEND_INTERVAL_MS = Math.floor(1000 / SEND_HZ);
@@ -69,24 +77,119 @@ let lastSentAt = 0;
 let lastPending: { x: number; y: number } | null = null;
 let sendTimer: ReturnType<typeof setTimeout> | null = null;
 
-// --- Audio / Video / WebRTC ---
-let localStream: MediaStream | null = null; // microphone
-let localVideoStream: MediaStream | null = null; // camera
-const peerConnections = new Map<string, RTCPeerConnection>();
-const audioElements = new Map<string, HTMLAudioElement>();
-const videoElements = new Map<string, HTMLVideoElement>();
-const remoteVideoStreams = new Map<string, MediaStream>();
-const remoteVideoSubscribers = new Set<(id: string, stream: MediaStream) => void>();
-// Perfect-negotiation helpers
-const politePeers = new Map<string, boolean>();
-const settingRemoteAnswerPending = new Map<string, boolean>();
+//Webrtc related
+export type MediaComponentTtype={
+  track:MediaStream
+  from:string,
+}
+export const RTCEventEmitter=new EventEmitter()
+RTCEventEmitter.on("onTrack",(track)=>{
+})
+export function setMediaElement(setState:Dispatch<SetStateAction<{
+track: MediaStream;
+    from: string;
+}[]>>){
+  console.log("called setmediaelement")
 
-// --- Robust helpers for signaling
-const pendingCandidates = new Map<string, RTCIceCandidateInit[]>(); // buffer candidates per peer
-const makingOffer = new Set<string>(); // guard per peer to avoid duplicate offers
+  console.log("onTrack listner added")
+  RTCEventEmitter.on("onTrack",(t:MediaStream,f:string)=>{
+    console.log("inside the rtceventemnitter ontrack")
+    setState((prev)=>{
+      for(let a of prev){
+        if(a.from==f){
+          return prev;
+        }
+      }
+      const ans=[...prev]
+      ans.push({track:t,from:f})
+      return ans
+    })
+  })
+  
+  if(RTCEventEmitter.listenerCount("onClose")===0){
+  RTCEventEmitter.on("onClose",(f:string)=>{
+    setState((prev)=>{
+      const ans=prev.filter((participant)=>{return participant.from!==f})
+      
+      return ans;
+    })
+  })
+  }
+}
+export function removeMediaElement(from:string){
+  RTCEventEmitter.emit("onClose",from)
+}
+type RTCBroadcastType={
+    from:string | null,
+    to:string,
+    sdp:RTCSessionDescriptionInit|undefined
+}
+type ICEBroadcastType={
+  from:string,
+  to:string,
+  ICE:RTCIceCandidateInit
+}
 
-// --- Audio range for proximity (you can keep/change)
-const AUDIO_RANGE = 100; // pixels
+let STREAM:MediaStream|null=null;
+
+class PeerService{
+  peer:undefined|RTCPeerConnection
+  constructor(from:string){
+    if(!this.peer){
+      this.peer=new RTCPeerConnection({
+        iceServers:[{
+          urls:[
+            "stun:stun.l.google.com:19302",
+            "stun:global.stun.twilio.com:3478",
+          ]
+        }]
+      })
+      if(STREAM){
+        STREAM.getTracks().forEach((track)=>{this.peer?.addTrack(track,STREAM!)})
+        console.log(STREAM)
+      }else{console.error("STREAM is not defined")}
+      this.peer.onicecandidate=(e)=>{
+         if(!e.candidate){return}
+        channel?.send({type:"broadcast",event:"webrtc-ICE",payload:{from:playerIdRef,to:from,payload:e.candidate.toJSON()}})
+      }
+      this.peer.ontrack=(event)=>{
+
+        RTCEventEmitter.emit("onTrack",event.streams[0],from)
+       console.log("peer ontrack event",event)
+      }
+    }
+  }
+  async getOffer(){
+    if(this.peer){
+      const offer=await this.peer.createOffer()
+      await this.peer.setLocalDescription(new RTCSessionDescription(offer))
+      return offer
+    }
+  }
+  async getAnswer(offer:RTCSessionDescriptionInit){
+    if(this.peer){
+      await this.peer.setRemoteDescription(new RTCSessionDescription(offer))
+      const answer=await this.peer.createAnswer();
+      await this.peer.setLocalDescription(new RTCSessionDescription(answer))
+      return answer;
+    }
+  }
+  async setLocal(ACK:RTCSessionDescriptionInit){
+    if(this.peer){
+      await this.peer.setRemoteDescription(new RTCSessionDescription(ACK))
+    }
+  }
+  async addICECandidates(ICE:RTCIceCandidateInit){
+    await this.peer?.addIceCandidate(new RTCIceCandidate(ICE))
+    console.log("ICE added")
+  }
+  close(){
+    this.peer?.close()
+  }
+}
+
+const peersConnections=new Map<string,PeerService>()
+
 
 // --- Utils ---
 function pushToQueue(playerId: string, sample: PositionSample) {
@@ -102,275 +205,16 @@ function safeSend(event: string, payload: Record<string, any>) {
     channel.send({ type: "broadcast", event, payload });
   } catch {}
 }
-
+function rtcSafeSend(event:string,payload:RTCBroadcastType){
+ if (!channel) return;
+  try {
+    channel.send({ type: "broadcast", event, payload });
+  } catch {}
+}
 function getDistance(a: { x: number; y: number }, b: { x: number; y: number }) {
   return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
-// --- Audio volume proximity
-function updateAudioVolumes(myPos: { x: number; y: number }) {
-  for (const [otherId, queue] of positionQueues) {
-    if (otherId === playerIdRef) continue;
-    const latest = queue[queue.length - 1];
-    if (!latest) continue;
-
-    const dist = getDistance(myPos, latest);
-    const audio = audioElements.get(otherId);
-    if (!audio) continue;
-
-    // simple cutoff (you can make it smooth)
-    audio.volume = dist <= AUDIO_RANGE ? 1 : 0;
-  }
-}
-
-// --- init mic with basic processing
-async function initAudio() {
-  if (!localStream) {
-    localStream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-      },
-    });
-  } else {
-    // If a prior stream exists but tracks are ended (tab resumed), reacquire
-    const ended = localStream.getTracks().every(t => t.readyState === 'ended');
-    if (ended) {
-      try { localStream.getTracks().forEach(t => t.stop()); } catch {}
-      localStream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-      });
-    }
-  }
-}
-
-// Create peer connection (and attach local tracks)
-async function createPeerConnection(remoteId: string) {
-  if (peerConnections.has(remoteId)) return peerConnections.get(remoteId)!;
-
-  const pc = new RTCPeerConnection({
-    iceServers: [
-      { urls: 'stun:stun.l.google.com:19302' },
-    ],
-    iceCandidatePoolSize: 4,
-  });
-
-  // Decide polite/impolite per connection (lower ID is polite)
-  if (playerIdRef) {
-    politePeers.set(remoteId, playerIdRef < remoteId);
-  }
-
-  // Prepare transceivers up front to stabilize SDP (m-lines stay consistent)
-  try {
-    pc.addTransceiver('audio', { direction: 'sendrecv' });
-  } catch {}
-  try {
-    pc.addTransceiver('video', { direction: localVideoStream ? 'sendrecv' : 'recvonly' });
-  } catch {}
-
-  // Add local audio tracks so remote receives our audio
-  if (localStream) {
-    for (const track of localStream.getTracks()) {
-      const audioSender = pc.getSenders().find((s) => s.track?.kind === 'audio');
-      if (audioSender && (audioSender as RTCRtpSender).replaceTrack) {
-        try { await (audioSender as RTCRtpSender).replaceTrack(track); } catch { pc.addTrack(track, localStream); }
-      } else {
-        pc.addTrack(track, localStream);
-      }
-    }
-  }
-  // Do NOT attach camera unless a call is active; startVideoWith will add it
-
-  // When we receive remote audio, attach to an <audio> element
-  pc.ontrack = (event) => {
-    const stream = event.streams[0] ?? null;
-    if (!stream) return;
-    // attach audio
-    if (event.track.kind === 'audio') {
-      let audio = audioElements.get(remoteId);
-      if (!audio) {
-        audio = document.createElement("audio");
-        audio.autoplay = true;
-        audio.setAttribute("playsinline", "");
-        audioElements.set(remoteId, audio);
-        document.body.appendChild(audio);
-      }
-      audio.srcObject = stream;
-      // Attempt to start playback immediately; some browsers require a gesture, but this helps when already interacted
-      try { void (audio as HTMLMediaElement).play?.(); } catch {}
-    }
-    // attach video (hidden by default; UI can adopt it if needed)
-    if (event.track.kind === 'video') {
-      let video = videoElements.get(remoteId);
-      if (!video) {
-        video = document.createElement('video');
-        video.autoplay = true;
-        video.muted = false;
-        video.playsInline = true as any;
-        video.style.display = 'none';
-        videoElements.set(remoteId, video);
-        document.body.appendChild(video);
-      }
-      video.srcObject = stream;
-      remoteVideoStreams.set(remoteId, stream);
-      // notify subscribers
-      remoteVideoSubscribers.forEach((cb) => {
-        try { cb(remoteId, stream); } catch {}
-      });
-    }
-  };
-
-  // Send ICE candidates via Supabase
-  pc.onicecandidate = (e) => {
-    if (e.candidate) {
-      safeSend("webrtc-candidate", {
-        from: playerIdRef,
-        to: remoteId,
-        candidate: e.candidate.toJSON(),
-      });
-    }
-  };
-
-  // Trigger renegotiation when needed (fires on caller when tracks added)
-  pc.onnegotiationneeded = async () => {
-    if (makingOffer.has(remoteId)) return;
-    makingOffer.add(remoteId);
-    try {
-      const offer = await pc.createOffer();
-      // Guard: if closed, bail
-      if (pc.signalingState === 'closed') return;
-      await pc.setLocalDescription(offer);
-      safeSend('webrtc-offer', { from: playerIdRef, to: remoteId, sdp: pc.localDescription });
-    } catch (e) {
-      // ignore
-    } finally {
-      makingOffer.delete(remoteId);
-    }
-  };
-
-  pc.onconnectionstatechange = () => {
-    if (pc.connectionState === 'failed') {
-      try { pc.restartIce(); } catch {}
-    }
-  };
-
-  peerConnections.set(remoteId, pc);
-
-  return pc;
-}
-
-// Drain buffered ICE candidates for a remote peer (call after remote description set)
-async function drainPendingCandidates(remoteId: string) {
-  const pc = peerConnections.get(remoteId);
-  if (!pc) return;
-  const list = pendingCandidates.get(remoteId);
-  if (!list?.length) return;
-  for (const cand of list) {
-    try {
-      await pc.addIceCandidate(new RTCIceCandidate(cand));
-    } catch (err) {
-      // ignore / log
-      // console.warn("failed to add buffered candidate", err);
-    }
-  }
-  pendingCandidates.delete(remoteId);
-}
-
-// --- Signaling handlers ---
-async function handleOffer(from: string, sdp: RTCSessionDescriptionInit) {
-  // we are the callee (answerer)
-  if (!playerIdRef) return;
-  // create/get pc
-  const pc = await createPeerConnection(from);
-
-  const isPolite = politePeers.get(from) ?? true;
-  const offerCollision = pc.signalingState !== 'stable' || makingOffer.has(from);
-  let ignoreOffer = !isPolite && offerCollision;
-
-  if (ignoreOffer) return;
-
-  if (offerCollision) {
-    // rollback local description on polite side
-    try { await pc.setLocalDescription({ type: 'rollback' } as any); } catch {}
-  }
-  try { await pc.setRemoteDescription(new RTCSessionDescription(sdp)); } catch { return; }
-
-  // drain any buffered ICE candidates that arrived before the offer
-  await drainPendingCandidates(from);
-
-  // create and send answer
-  try {
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-    safeSend("webrtc-answer", { from: playerIdRef, to: from, sdp: pc.localDescription });
-  } catch (err) {
-    console.warn("Failed to create/send answer", err);
-  }
-
-  // Ensure we also publish our local video after accepting remote offer (caller side)
-  // Do not request camera/mic here; we only add camera if user initiates a call
-}
-
-async function handleAnswer(from: string, sdp: RTCSessionDescriptionInit) {
-  const pc = await createPeerConnection(from);
-  try { await pc.setRemoteDescription(new RTCSessionDescription(sdp)); } catch { return; }
-  // drain any buffered candidates
-  await drainPendingCandidates(from);
-  // if we have local video and sender exists but track is missing on remote side, trigger renegotiation
-  if (localVideoStream && !pc.getSenders().some((s) => s.track?.kind === 'video')) {
-    try {
-      for (const track of localVideoStream.getVideoTracks()) {
-        pc.addTrack(track, localVideoStream);
-      }
-    } catch {}
-  }
-}
-
-async function handleCandidate(from: string, candidate: RTCIceCandidateInit) {
-  const pc = peerConnections.get(from);
-  // if remote description not set yet, buffer candidate
-  if (!pc || !pc.remoteDescription || !pc.remoteDescription.type) {
-    const list = pendingCandidates.get(from) ?? [];
-    list.push(candidate);
-    pendingCandidates.set(from, list);
-    return;
-  }
-  try {
-    await pc.addIceCandidate(new RTCIceCandidate(candidate));
-  } catch (err) {
-    console.warn("Error adding ICE candidate", err);
-  }
-}
-
-async function callPlayer(remoteId: string) {
-  if (!playerIdRef) return;
-  // deterministic rule: only caller if local id > remote id (lexicographic)
-  if (!(playerIdRef > remoteId)) return;
-
-  // avoid duplicate offers
-  if (makingOffer.has(remoteId)) return;
-  makingOffer.add(remoteId);
-
-  try {
-    // ensure mic is available before creating offer so audio is included
-    await initAudio().catch(() => {});
-    const pc = await createPeerConnection(remoteId);
-    // Explicitly create and send offer for audio-only proximity
-    const offer = await pc.createOffer();
-    if (pc.signalingState === 'closed') return;
-    await pc.setLocalDescription(offer);
-    safeSend("webrtc-offer", { from: playerIdRef, to: remoteId, sdp: pc.localDescription });
-  } catch (err) {
-    console.warn("callPlayer error", err);
-  } finally {
-    makingOffer.delete(remoteId);
-  }
-}
 
 // --- Init / Realtime setup ---
 export async function initRealtime(opts: {
@@ -382,7 +226,7 @@ export async function initRealtime(opts: {
   roomIdRef = roomId;
   playerIdRef = playerId;
   myMetaRef = { ...(meta ?? {}) };
-
+  
   // unsubscribe if previous channel existed
   if (channel) {
     try {
@@ -390,10 +234,80 @@ export async function initRealtime(opts: {
     } catch {}
   }
   channel = null;
-
+  
   channel = supabase.channel(`room:${roomId}`, {
     config: { broadcast: { self: false } },
   });
+
+// WebRTC related
+
+channel.on("broadcast", { event: "webrtc-meta" }, async ({ payload }) => {
+  const data = payload as { from: string };
+  console.log("meta received", data);
+  if (!data.from || data.from === playerIdRef) return;
+    if (!peersConnections.has(data.from)) {
+      peersConnections.set(data.from, new PeerService(data.from));
+    }
+  channel?.send({
+    type: "broadcast",
+    event: "webrtc-meta-ACK",
+    payload: { from: playerIdRef, to: data.from },
+  });
+});
+
+channel.on("broadcast", { event: "webrtc-meta-ACK" }, async ({ payload }) => {
+  const data = payload as { from: string; to: string };
+  console.log("meta ACK received", data);
+  if (!data.from || data.from === playerIdRef) return;
+  if (data.to === playerIdRef) {
+    if (!peersConnections.has(data.from)) {
+      peersConnections.set(data.from, new PeerService(data.from));
+    }
+    if (STREAM) {
+      createOffer(STREAM,data.from);
+    }
+  }
+});
+
+channel.on("broadcast", { event: "webrtc-initials" }, async ({ payload }) => {
+  const data = payload as { from: string; to: string; sdp: RTCSessionDescriptionInit };
+  console.log("event: webrtc-initials(new user just joined)", data);
+  if (!data.from || data.from === playerIdRef) return;
+  if (data.to === playerIdRef) {
+    const Peer = peersConnections.get(data.from);
+    const answer = await Peer?.getAnswer(data.sdp);
+    rtcSafeSend("webrtc-initials-ACK", { from: playerIdRef, to: data.from, sdp: answer });
+  }
+});
+
+channel.on("broadcast", { event: "webrtc-initials-ACK" }, ({ payload }) => {
+  const data = payload as { from: string; to: string; sdp: RTCSessionDescriptionInit };
+  if (!data.from || data.from === playerIdRef) return;
+  if (data.to === playerIdRef) {
+    const Peer = peersConnections.get(data.from);
+    Peer?.setLocal(data.sdp);
+   
+    console.log("ACK recieved:", data.from);
+  }
+});
+channel.on("broadcast",{event:"webrtc-destroy"},({payload})=>{
+  const data = payload as { from: string}
+  console.log("WebRTC peer destroyed ",data.from)
+    peersConnections.get(data.from)?.close()
+    peersConnections.delete(data.from)
+    removeMediaElement(data.from)
+})
+channel.on("broadcast",{event:"webrtc-ICE"},async ({payload})=>{
+  const data= payload as ICEBroadcastType
+  if(!data.from || data.from==playerIdRef){return ;}
+  if(data.to===playerIdRef){
+      const Peer=peersConnections.get(data.from);
+      if(Peer?.peer && data.ICE){
+        Peer.addICECandidates(data.ICE)
+      }
+  }
+})
+
 
   // --- Position updates ---
   channel.on("broadcast", { event: "player-pos" }, (payload) => {
@@ -403,15 +317,11 @@ export async function initRealtime(opts: {
     const sample: PositionSample = { x: data.x, y: data.y, ts: data.ts ?? Date.now() };
     pushToQueue(data.playerId, sample);
     updateSubscribers.forEach((cb) => cb(data.playerId, sample));
-
-    // If we have our own pos, update audio volumes
-    if (playerIdRef) {
-      const myQueue = positionQueues.get(playerIdRef);
-      const myPos = myQueue?.[myQueue.length - 1];
-      if (myPos) updateAudioVolumes(myPos);
-    }
+    
+    
+    
   });
-
+  
   // --- Meta updates ---
   channel.on("broadcast", { event: "player-meta" }, (payload) => {
     const data = payload.payload as { playerId: string; name?: string; character?: string; avatar?: string };
@@ -420,19 +330,16 @@ export async function initRealtime(opts: {
     const next: PlayerMetaInfo = { name: data.name, character: data.character, avatar: data.avatar };
     metaCache.set(data.playerId, next);
     metaSubscribers.forEach((cb) => cb(data.playerId, next));
-
-    // Start proximity audio p2p for lower-id (caller) pairs only
-    if (playerIdRef && playerIdRef > data.playerId) {
-      initAudio().then(() => callPlayer(data.playerId)).catch(() => {});
-    }
+    
+  
   });
-
+  
   // --- Chat messages ---
   channel.on("broadcast", { event: "chat-message" }, (payload) => {
     const message = payload.payload as ChatMessage;
     chatMessageSubscribers.forEach((cb) => cb(message));
   });
-
+  
   // --- Meta request (handshake) ---
   channel.on("broadcast", { event: "meta-req" }, (payload) => {
     const data = payload.payload as { from?: string };
@@ -441,66 +348,19 @@ export async function initRealtime(opts: {
       safeSend("player-meta", { playerId: playerIdRef, ...myMetaRef });
     }
   });
-
-  // --- WebRTC signaling ---
-  channel.on("broadcast", { event: "webrtc-offer" }, (payload) => {
-    const { from, to, sdp } = payload.payload as { from: string; to?: string; sdp: RTCSessionDescriptionInit };
-    if (from !== playerIdRef && (!to || to === playerIdRef)) {
-      initAudio().then(() => handleOffer(from, sdp)).catch((e) => {
-        console.warn("initAudio failed before handleOffer", e);
-      });
-    }
-  });
-
-  channel.on("broadcast", { event: "webrtc-answer" }, (payload) => {
-    const { from, to, sdp } = payload.payload as { from: string; to?: string; sdp: RTCSessionDescriptionInit };
-    if (from !== playerIdRef && (!to || to === playerIdRef)) handleAnswer(from, sdp);
-  });
-
-  channel.on("broadcast", { event: "webrtc-candidate" }, (payload) => {
-    const { from, to, candidate } = payload.payload as { from: string; to?: string; candidate: RTCIceCandidateInit };
-    if (from !== playerIdRef && (!to || to === playerIdRef)) handleCandidate(from, candidate);
-  });
-
-  // --- Call request/response/end (video consent) ---
-  channel.on("broadcast", { event: "call-request" }, (payload) => {
-    const { from, to } = payload.payload as { from: string; to: string };
-    if (!playerIdRef || to !== playerIdRef) return;
-    callRequestSubscribers.forEach((cb) => cb(from, metaCache.get(from) ?? {}));
-  });
-
-  channel.on("broadcast", { event: "call-response" }, async (payload) => {
-    const { from, to, accept } = payload.payload as { from: string; to: string; accept: boolean };
-    if (!playerIdRef || to !== playerIdRef) return;
-    if (accept) {
-      try { await startVideoWith(from); } catch {}
-    }
-    callResponseSubscribers.forEach((cb) => cb(from, accept));
-  });
-
-  channel.on("broadcast", { event: "call-end" }, async (payload) => {
-    const { from, to } = payload.payload as { from: string; to: string };
-    if (!playerIdRef || to !== playerIdRef) return;
-    try { await stopVideoWith(from); } catch {}
-    callEndSubscribers.forEach((cb) => cb(from));
-  });
-
+  
   // --- Subscribe ---
   await channel.subscribe(async (status) => {
     if (status === "SUBSCRIBED") {
-      // init mic only
-      try { await initAudio(); } catch {}
-
       // send meta so others learn about us
       if (myMetaRef && (myMetaRef.name || myMetaRef.character || myMetaRef.avatar)) {
         sendPlayerMeta(myMetaRef);
       }
       safeSend("meta-req", { from: playerIdRef });
-
-      // Do not auto-call existing players
+      startSignaling()
     }
   });
-
+  
   // --- Periodic cleanup of stale players ---
   setInterval(() => {
     const now = Date.now();
@@ -520,10 +380,10 @@ export async function initRealtime(opts: {
 export function sendPosition(x: number, y: number) {
   if (!channel || !playerIdRef) return;
   const now = Date.now();
-
+  
   // push own pos locally so proximity check has a reference
   pushToQueue(playerIdRef, { x, y, ts: now });
-
+  
   if (now - lastSentAt >= SEND_INTERVAL_MS) {
     lastSentAt = now;
     lastPending = null;
@@ -542,11 +402,28 @@ export function sendPosition(x: number, y: number) {
       }, Math.max(0, wait));
     }
   }
+   
+}
+export async function setSTREAM(s:MediaStream) {
+  STREAM=s
+}
+export async function startSignaling() {
 
-  // update audio volumes whenever we move
-  const myQueue = positionQueues.get(playerIdRef);
-  const myPos = myQueue?.[myQueue.length - 1];
-  if (myPos) updateAudioVolumes(myPos);
+  channel?.send({type:"broadcast",event:"webrtc-meta",payload:{from:playerIdRef}})
+  console.log("signalinf start")
+}
+export async function createOffer(localStream:MediaStream|undefined=undefined,fromId:string,){
+console.log("called creatOffer")
+    
+      const Peer=peersConnections.get(fromId)
+     // if(localStream){
+       // localStream.getTracks().forEach((track)=>{Peer?.peer?.addTrack(track,localStream)})
+     // }
+      //else{console.error("localStream is undefined")}
+      const offer = await Peer?.getOffer()
+      channel?.send({type:"broadcast",event:"webrtc-initials",payload:{from:playerIdRef,to:fromId,sdp:offer}})
+  
+  
 }
 
 export function sendChatMessage(message: string) {
@@ -604,6 +481,9 @@ export function clearPlayerQueue(playerId: string) {
 }
 
 export async function destroyRealtime() {
+  channel?.send({type:"broadcast",event:"webrtc-destroy",payload:{from:playerIdRef}})
+  peersConnections.forEach((Peer)=>{Peer.close()})
+  peersConnections.clear();
   if (channel) {
     try {
       await channel.unsubscribe();
@@ -620,65 +500,10 @@ export async function destroyRealtime() {
     clearTimeout(sendTimer);
     sendTimer = null;
   }
-
+  
   // Clear chat subscribers
   chatMessageSubscribers.clear();
 
-  // Close & stop peer connections and their tracks (senders & receivers)
-  peerConnections.forEach((pc) => {
-    try {
-      pc.getSenders().forEach((s) => s.track?.stop());
-      pc.getReceivers().forEach((r) => r.track?.stop());
-      pc.close();
-    } catch {}
-  });
-  peerConnections.clear();
-
-  // Remove audio elements and stop their streams
-  audioElements.forEach((audio) => {
-    try {
-      if (audio.srcObject) {
-        (audio.srcObject as MediaStream).getTracks().forEach((t) => t.stop());
-      }
-      audio.pause();
-      audio.srcObject = null;
-      if (audio.parentNode) audio.parentNode.removeChild(audio);
-    } catch {}
-  });
-  audioElements.clear();
-
-  // Remove video elements and stop their streams
-  videoElements.forEach((video) => {
-    try {
-      if (video.srcObject) {
-        (video.srcObject as MediaStream).getTracks().forEach((t) => t.stop());
-      }
-      video.pause();
-      video.srcObject = null;
-      if (video.parentNode) video.parentNode.removeChild(video);
-    } catch {}
-  });
-  videoElements.clear();
-
-  // Stop local mic
-  if (localStream) {
-    try {
-      localStream.getTracks().forEach((t) => t.stop());
-    } catch {}
-    localStream = null;
-  }
-
-  // Stop local camera
-  if (localVideoStream) {
-    try {
-      localVideoStream.getTracks().forEach((t) => t.stop());
-    } catch {}
-    localVideoStream = null;
-  }
-
-  // clear pending candidates & makingOffer state
-  pendingCandidates.clear();
-  makingOffer.clear();
 }
 
 // --- Compatibility wrapper ---
@@ -743,106 +568,4 @@ export function getAllPlayers(): Array<{ id: string; name?: string; character?: 
 
 export function getSelfId() { return playerIdRef; }
 
-export function getRemoteVideoStream(remoteId: string) { return remoteVideoStreams.get(remoteId) || null; }
-export function getLocalVideoStream() { return localVideoStream; }
-export function onRemoteVideo(cb: (id: string, stream: MediaStream) => void) { remoteVideoSubscribers.add(cb); return () => { remoteVideoSubscribers.delete(cb) } }
 
-async function ensureCamera(): Promise<MediaStream> {
-  if (!localVideoStream) {
-    localVideoStream = await navigator.mediaDevices.getUserMedia({ video: true });
-  }
-  return localVideoStream;
-}
-
-async function renegotiate(remoteId: string) {
-  const pc = peerConnections.get(remoteId) || await createPeerConnection(remoteId);
-  if (!pc) return;
-  try {
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-    safeSend('webrtc-offer', { from: playerIdRef, to: remoteId, sdp: pc.localDescription });
-  } catch (e) {
-    console.warn('renegotiate failed', e);
-  }
-}
-
-export async function startVideoWith(remoteId: string) {
-  const pc = peerConnections.get(remoteId) || await createPeerConnection(remoteId);
-  if (!pc) return;
-  const cam = await ensureCamera();
-  // add track if not already added
-  const sender = pc.getSenders().find((s) => s.track?.kind === 'video');
-  const track = cam.getVideoTracks()[0];
-  if (track) {
-    if (sender) {
-      try { await sender.replaceTrack(track); } catch { pc.addTrack(track, cam); }
-    } else {
-      pc.addTrack(track, cam);
-    }
-  }
-  // negotiation will be triggered by onnegotiationneeded
-  // keep proximity-only logic; do not force audio to max
-}
-
-export async function stopVideoWith(remoteId: string) {
-  const pc = peerConnections.get(remoteId);
-  if (pc) {
-    pc.getSenders().forEach((s) => {
-      if (s.track?.kind === 'video') {
-        try { s.track.stop(); } catch {}
-        try { pc.removeTrack(s); } catch {}
-      }
-    });
-    // negotiation will be triggered by onnegotiationneeded
-  }
-  const el = videoElements.get(remoteId);
-  if (el) {
-    try {
-      el.pause();
-      el.srcObject = null;
-      if (el.parentNode) el.parentNode.removeChild(el);
-    } catch {}
-    videoElements.delete(remoteId);
-  }
-  // if no other peers use camera, stop it
-  if (localVideoStream) {
-    const anyVideoSending = Array.from(peerConnections.values()).some((peer) =>
-      peer.getSenders().some((s) => s.track?.kind === 'video')
-    );
-    if (!anyVideoSending) {
-      try { localVideoStream.getTracks().forEach((t) => t.stop()); } catch {}
-      localVideoStream = null;
-    }
-  }
-}
-
-// --- Call request/response helpers ---
-type CallReqCb = (fromId: string, meta: PlayerMetaInfo) => void;
-type CallRespCb = (remoteId: string, accepted: boolean) => void;
-type CallEndCb = (remoteId: string) => void;
-const callRequestSubscribers = new Set<CallReqCb>();
-const callResponseSubscribers = new Set<CallRespCb>();
-const callEndSubscribers = new Set<CallEndCb>();
-
-export function onIncomingCall(cb: CallReqCb) { callRequestSubscribers.add(cb); return () => { callRequestSubscribers.delete(cb) } }
-export function onCallResponse(cb: CallRespCb) { callResponseSubscribers.add(cb); return () => { callResponseSubscribers.delete(cb) } }
-export function onCallEnd(cb: CallEndCb) { callEndSubscribers.add(cb); return () => { callEndSubscribers.delete(cb) } }
-
-export async function requestCall(remoteId: string) {
-  if (!playerIdRef || !channel) return;
-  safeSend('call-request', { from: playerIdRef, to: remoteId });
-}
-
-export async function respondToCall(remoteId: string, accept: boolean) {
-  if (!playerIdRef || !channel) return;
-  if (accept) {
-    try { await startVideoWith(remoteId); } catch {}
-  }
-  safeSend('call-response', { from: playerIdRef, to: remoteId, accept });
-}
-
-export async function endCall(remoteId: string) {
-  if (!playerIdRef || !channel) return;
-  try { await stopVideoWith(remoteId); } catch {}
-  safeSend('call-end', { from: playerIdRef, to: remoteId });
-}
