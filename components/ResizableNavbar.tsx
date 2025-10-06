@@ -24,7 +24,7 @@ export function ResizableNavbar() {
     () => [
       {
         name: "Features",
-        link: "#features",
+        link: "/features/",
       },
       {
         name: "Pricing",
@@ -32,7 +32,7 @@ export function ResizableNavbar() {
       },
       {
         name: "Contact",
-        link: "#contact",
+        link: "/contact/",
       },
     ],
     []

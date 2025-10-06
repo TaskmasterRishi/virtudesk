@@ -40,6 +40,10 @@ export function usePhaserGame(options: {
         width: w,
         height: h,
         pixelArt: true,
+        render: {
+          pixelArt: true,
+          antialias: false,
+        },
         backgroundColor: '#1e1e1e',
         scale: {
           mode: Phaser.Scale.FIT,

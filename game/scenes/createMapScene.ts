@@ -2,6 +2,7 @@ import { PlayerMovement } from "./PlayerMovement";
 import {
   createPlayerRealtime,
   popNextPosition,
+  getAllPlayers,
 } from "../realtime/PlayerRealtime";
 import {
   AVAILABLE_SPRITES,
@@ -38,11 +39,85 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
     private prevRemotePos: Record<string, { x: number; y: number }> = {};
     private loadingTextures = new Set<string>(); // avoid duplicate loads
     private perPlayerChar: Record<string, CharacterSprite> = {};
+    // HTML overlay elements for crisp text rendering
+    private playerNameElement: HTMLElement | null = null;
+    private remoteNameElements: Record<string, HTMLElement> = {};
+    private gameContainer: HTMLElement | null = null;
 
     constructor() {
       super("MapScene");
       // will be set from Supabase in create(); default fallback
       this.selectedCharacter = AVAILABLE_SPRITES[0];
+    }
+
+    private getGameContainer(): HTMLElement | null {
+      if (!this.gameContainer) {
+        this.gameContainer = this.game.canvas.parentElement;
+      }
+      return this.gameContainer;
+    }
+
+    private createNameOverlay(name: string, isLocalPlayer: boolean = false): HTMLElement {
+      const container = this.getGameContainer();
+      if (!container) return document.createElement('div');
+
+      const overlay = document.createElement('div');
+      overlay.className = 'player-name-overlay';
+      overlay.textContent = name;
+      
+      // Crisp CSS styling
+      Object.assign(overlay.style, {
+        position: 'absolute',
+        fontFamily: 'Arial, sans-serif',
+        fontSize: '14px',
+        fontWeight: '600',
+        color: '#ffffff',
+        textAlign: 'center',
+        whiteSpace: 'nowrap',
+        pointerEvents: 'none',
+        userSelect: 'none',
+        zIndex: '1000',
+        textShadow: '1px 1px 2px rgba(0, 0, 0, 0.8), -1px -1px 2px rgba(0, 0, 0, 0.8)',
+        background: 'rgba(0, 0, 0, 0.6)',
+        padding: '2px 6px',
+        borderRadius: '4px',
+        border: '1px solid rgba(255, 255, 255, 0.2)',
+        backdropFilter: 'blur(2px)',
+        transform: 'translate(-50%, -100%)',
+        transition: 'opacity 0.2s ease',
+      });
+
+      // Add special styling for local player
+      if (isLocalPlayer) {
+        overlay.style.border = '1px solid rgba(59, 130, 246, 0.5)';
+        overlay.style.background = 'rgba(59, 130, 246, 0.2)';
+      }
+
+      container.appendChild(overlay);
+      return overlay;
+    }
+
+    private updateNameOverlayPosition(element: HTMLElement, worldX: number, worldY: number) {
+      if (!element || !this.cameras.main) return;
+
+      // Convert world coordinates to screen coordinates
+      const camera = this.cameras.main;
+      const screenX = (worldX - camera.worldView.x) * camera.zoom;
+      const screenY = (worldY - camera.worldView.y) * camera.zoom;
+
+      // Get canvas position
+      const canvas = this.game.canvas;
+      const canvasRect = canvas.getBoundingClientRect();
+      
+      // Position relative to canvas
+      element.style.left = `${canvasRect.left + screenX}px`;
+      element.style.top = `${canvasRect.top + screenY - 8}px`;
+    }
+
+    private destroyNameOverlay(element: HTMLElement | null) {
+      if (element && element.parentNode) {
+        element.parentNode.removeChild(element);
+      }
     }
 
     private loadAllCharacters() {
@@ -69,7 +144,7 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
       this.load.image("tiles", "/assests/tiles.png", {
         scaleMode: Phaser.ScaleModes.NEAREST,
       });
-      this.load.tilemapTiledJSON("map", "/assests/map1.json");
+      this.load.tilemapTiledJSON("map", "/assests/map2.json");
 
       // Preload all characters to avoid async race with Supabase fetch
       this.loadAllCharacters();
@@ -92,11 +167,16 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
         // Check if frames already exist to avoid re-slicing
         const expectedFirst = `${imgKey}_0`;
         if ((tex as any).frames && (tex as any).frames[expectedFirst]) {
-          const names = Array.from({ length: frames }, (_, i) => `${imgKey}_${i}`);
+          const names = Array.from(
+            { length: frames },
+            (_, i) => `${imgKey}_${i}`
+          );
           return { frameNames: names, fw: 0, fh: 0 };
         }
 
-        const src = tex.getSourceImage() as HTMLImageElement | HTMLCanvasElement;
+        const src = tex.getSourceImage() as
+          | HTMLImageElement
+          | HTMLCanvasElement;
         const totalW = (src as any).width as number;
         const totalH = (src as any).height as number;
         const frameWidth = Math.floor(totalW / frames);
@@ -119,7 +199,12 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
       const walk = sliceSheet(walkKey, char.walkFrames);
       const run = sliceSheet(runKey, char.runFrames);
 
-      const ensureAnim = (key: string, imgKey: string, names: string[], frameRate: number) => {
+      const ensureAnim = (
+        key: string,
+        imgKey: string,
+        names: string[],
+        frameRate: number
+      ) => {
         if (this.anims.exists(key) || !names.length) return;
         this.anims.create({
           key,
@@ -172,6 +257,15 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
 
       // Remember my character for meta
       this.perPlayerChar[opts.userId] = char;
+
+      // --- PLAYER NAME LABEL (HTML OVERLAY) ---
+      if (this.playerNameElement) {
+        this.destroyNameOverlay(this.playerNameElement);
+      }
+      
+      const playerName = opts.name || "Player";
+      this.playerNameElement = this.createNameOverlay(playerName, true);
+      // --- END PLAYER NAME LABEL ---
     }
 
     // --- FIXED REMOTE SPRITE/ANIMATION LOGIC ---
@@ -182,12 +276,19 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
       y?: number
     ) {
       // Check if scene is still active
-      if (!this.add || !this.scene || typeof this.scene.isActive !== "function" || this.scene.isActive() === false) {
+      if (
+        !this.add ||
+        !this.scene ||
+        typeof this.scene.isActive !== "function" ||
+        this.scene.isActive() === false
+      ) {
         return null;
       }
 
       let s = this.remotePlayers[userId];
-      const char = characterName ? (getCharacterByName(characterName) ?? AVAILABLE_SPRITES[0]) : (this.perPlayerChar[userId] ?? AVAILABLE_SPRITES[0]);
+      const char = characterName
+        ? getCharacterByName(characterName) ?? AVAILABLE_SPRITES[0]
+        : this.perPlayerChar[userId] ?? AVAILABLE_SPRITES[0];
       this.perPlayerChar[userId] = char;
 
       this.ensureAnimsFor(char);
@@ -210,6 +311,19 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
         s.anims.play(char.animations.idle, true);
       }
 
+          // --- REMOTE PLAYER NAME LABEL (HTML OVERLAY) ---
+          if (this.remoteNameElements[userId]) {
+            this.destroyNameOverlay(this.remoteNameElements[userId]);
+          }
+          
+          // Get the correct name for this user
+          let remoteName = userId;
+          const allPlayers = getAllPlayers();
+          const found = allPlayers.find(p => p.id === userId);
+          if (found && found.name) remoteName = found.name;
+    
+          this.remoteNameElements[userId] = this.createNameOverlay(remoteName, false);
+          // --- END REMOTE PLAYER NAME LABEL ---
       return s;
     }
 
@@ -218,9 +332,9 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
     private async pickUserCharacter() {
       try {
         const { data, error } = await supabase
-          .from('user_characters')
-          .select('character_id')
-          .eq('user_id', opts.userId)
+          .from("user_characters")
+          .select("character_id")
+          .eq("user_id", opts.userId)
           .single();
 
         if (!error && data?.character_id) {
@@ -262,11 +376,19 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
             const { idle, walk, run } = char.animations;
 
             if (moving) {
-              const target = (running && this.anims.exists(run)) ? run : (this.anims.exists(walk) ? walk : idle);
+              const target =
+                running && this.anims.exists(run)
+                  ? run
+                  : this.anims.exists(walk)
+                  ? walk
+                  : idle;
               if (target && s.anims?.currentAnim?.key !== target) {
                 s.anims.play(target, true);
               }
-            } else if (this.anims.exists(idle) && s.anims?.currentAnim?.key !== idle) {
+            } else if (
+              this.anims.exists(idle) &&
+              s.anims?.currentAnim?.key !== idle
+            ) {
               s.anims.play(idle, true);
             }
 
@@ -285,7 +407,12 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
       });
     }
 
-    private setupMapBounds(mapW: number, mapH: number, tileW: number, tileH: number) {
+    private setupMapBounds(
+      mapW: number,
+      mapH: number,
+      tileW: number,
+      tileH: number
+    ) {
       const insetX = tileW * 0.5;
       const insetY = tileH * 0.5;
       const leftBound = insetX;
@@ -331,13 +458,22 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
         .filter((l: any) => l.type === "tilelayer")
         .forEach((l: any, idx: number) => {
           const flat: number[] = l.data ?? [];
-          const normalized = flat.map((v: number) => v === 0 ? -1 : v - firstgid);
+          const normalized = flat.map((v: number) =>
+            v === 0 ? -1 : v - firstgid
+          );
           const grid: number[][] = [];
           for (let i = 0; i < normalized.length; i += width) {
             grid.push(normalized.slice(i, i + width));
           }
 
-          const layer = map.createBlankLayer(l.name, tiles, 0, 0, width, height);
+          const layer = map.createBlankLayer(
+            l.name,
+            tiles,
+            0,
+            0,
+            width,
+            height
+          );
           layer.putTilesAt(grid, 0, 0);
           layer.setDepth(l.id ?? idx);
           layer.setVisible(l.visible !== false);
@@ -431,6 +567,27 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
     update(time: number, delta: number) {
       this.playerMovement?.update(time, delta);
 
+      // Update HTML overlay positions
+      if (this.player && this.playerNameElement) {
+        this.updateNameOverlayPosition(
+          this.playerNameElement,
+          this.player.x,
+          this.player.y - this.player.displayHeight / 2 - 8
+        );
+      }
+
+      for (const userId in this.remotePlayers) {
+        const s = this.remotePlayers[userId];
+        const element = this.remoteNameElements[userId];
+        if (s && element) {
+          this.updateNameOverlayPosition(
+            element,
+            s.x,
+            s.y - s.displayHeight / 2 - 8
+          );
+        }
+      }
+
       if (this.player && this.rt) {
         this.rt.broadcastPosition({
           x: this.player.x,
@@ -455,6 +612,23 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
       this.remotePlayers = {};
       this.prevRemotePos = {};
       this.loadingTextures.clear();
+      
+      // Clean up HTML overlays
+      this.destroyNameOverlay(this.playerNameElement);
+      this.playerNameElement = null;
+      
+      for (const userId in this.remoteNameElements) {
+        this.destroyNameOverlay(this.remoteNameElements[userId]);
+      }
+      this.remoteNameElements = {};
+      if (this.playerNameContainer) {
+        this.playerNameContainer.destroy();
+        this.playerNameContainer = null;
+      }
+      for (const userId in this.remoteNameContainers) {
+        this.remoteNameContainers[userId].destroy();
+        delete this.remoteNameContainers[userId];
+      }
     }
   })();
 }
