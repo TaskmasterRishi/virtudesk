@@ -7,12 +7,14 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { getAllPlayers, getSelfId } from '@/game/realtime/PlayerRealtime'
 import { Users2, MessageSquareText, Video } from "lucide-react"
 import TextChat from './TextChat'
+import { getWhiteboardOpen } from '@/game/whiteboardState'
 
 type PlayerInfo = { id: string; name?: string; character?: string; avatar?: string }
 
 export default function PlayersPanel() {
 	const [players, setPlayers] = useState<PlayerInfo[]>([])
 	const [activeTab, setActiveTab] = useState<'participants' | 'chat'>('participants')
+	const [isWhiteboardOpen, setIsWhiteboardOpen] = useState(false)
 	const selfId = getSelfId()
 	const { user } = useUser()
 
@@ -28,6 +30,21 @@ export default function PlayersPanel() {
 		return () => clearInterval(t)
 	}, [refresh])
 
+	// Monitor whiteboard state
+	useEffect(() => {
+		const checkWhiteboardState = () => {
+			setIsWhiteboardOpen(getWhiteboardOpen())
+		}
+		
+		// Check immediately
+		checkWhiteboardState()
+		
+		// Check periodically
+		const interval = setInterval(checkWhiteboardState, 100)
+		
+		return () => clearInterval(interval)
+	}, [])
+
 	// Show max 5 avatars, collapse extras into "+N" avatar
 	const maxVisible = 5
 	const visiblePlayers = useMemo(() => players.slice(0, maxVisible), [players])
@@ -35,6 +52,11 @@ export default function PlayersPanel() {
 
 // Call button intentionally does nothing for now
 const onCall = useCallback(() => {}, [])
+
+	// Don't render when whiteboard is open
+	if (isWhiteboardOpen) {
+		return null
+	}
 
 	return (
 		<>

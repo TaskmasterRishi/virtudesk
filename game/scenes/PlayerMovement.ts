@@ -1,4 +1,5 @@
 import { getChatInputFocus } from '../chatState';
+import { getWhiteboardOpen } from '../whiteboardState'; // Import getWhiteboardOpen
 
 export class PlayerMovement {
   private animationKeys: {
@@ -25,7 +26,8 @@ export class PlayerMovement {
   update(_: number, __: number) {
     if (!this.player || !this.cursors) return;
 
-    if (getChatInputFocus()) {
+    // Disable movement if chat is focused OR whiteboard is open
+    if (getChatInputFocus() || getWhiteboardOpen()) {
       this.player.setVelocity(0, 0);
       if (this.player.anims?.animationManager?.exists(this.animationKeys.idle)) {
         if (this.player.anims?.currentAnim?.key !== this.animationKeys.idle) {
@@ -37,8 +39,8 @@ export class PlayerMovement {
 
     let vx = 0, vy = 0;
     // Arrow and WASD keys
-    // Only check for movement keys if chat input is NOT focused
-    if (!getChatInputFocus()) {
+    // Only check for movement keys if chat input is NOT focused and whiteboard is NOT open
+    if (!getChatInputFocus() && !getWhiteboardOpen()) {
       if (this.cursors.left?.isDown || this.wasd?.A?.isDown) vx -= 1;
       if (this.cursors.right?.isDown || this.wasd?.D?.isDown) vx += 1;
       if (this.cursors.up?.isDown || this.wasd?.W?.isDown) vy -= 1;

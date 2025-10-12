@@ -1,4 +1,5 @@
 import { ClerkProvider } from "@clerk/nextjs";
+import { LiveblocksProviderWrapper } from "@/components/LiveblocksProvider";
 import "./globals.css";
 
 export default async function RootLayout({
@@ -14,7 +15,11 @@ export default async function RootLayout({
         <title>virtuOffice</title>
       </head>
       <body>
-        <ClerkProvider>{children}</ClerkProvider>
+        <ClerkProvider>
+          <LiveblocksProviderWrapper>
+            {children}
+          </LiveblocksProviderWrapper>
+        </ClerkProvider>
       </body>
     </html>
   );
