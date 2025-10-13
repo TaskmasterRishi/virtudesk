@@ -34,7 +34,7 @@ const MemberList = () => {
 
   return (
     <div className="space-y-3 h-[350px] overflow-y-auto">
-      <h3 className="text-sm font-medium">Organization Members</h3>
+      <h3 className="text-base font-medium">Organization Members</h3>
       {loading ? (
         <div className="flex items-center justify-center h-full">
           <LoaderFive text="Loading members"/>
@@ -48,7 +48,7 @@ const MemberList = () => {
             return (
               <div
                 key={membership.id}
-                className="flex items-center gap-1.5 p-1 rounded-md hover:bg-muted/50 text-xs"
+                className="flex items-center gap-1.5 p-1 rounded-md hover:bg-muted/50 text-sm"
               >
                 <Avatar className="size-5">
                   <AvatarImage src={publicUserData.imageUrl} />
@@ -60,11 +60,11 @@ const MemberList = () => {
                   <p className="font-medium truncate">
                     {publicUserData.firstName} {publicUserData.lastName}
                   </p>
-                  <p className="text-[0.7rem] text-muted-foreground truncate">
+                  <p className="text-xs text-muted-foreground truncate">
                     {publicUserData.identifier}
                   </p>
                 </div>
-                <Badge variant="secondary" className="text-[0.7rem] px-1 py-0.5">
+                <Badge variant="secondary" className="text-xs px-1.5 py-0.5">
                   {membership.role.replace('org:','')}
                 </Badge>
               </div>

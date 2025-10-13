@@ -50,10 +50,10 @@ export function NavMain() {
                 >
                   <SidebarMenuButton
                     tooltip={item.title}
-                    className="hover:cursor-pointer"
+                    className="hover:cursor-pointer text-base"
                   >
                     {item.icon && <item.icon />}
-                    <span>{item.title}</span>
+                    <span className="text-base">{item.title}</span>
                   </SidebarMenuButton>
                 </motion.div>
               </SidebarMenuItem>

@@ -12,35 +12,61 @@ export interface CollaborativeWhiteboardProps {
   roomId: string;
 }
 
+// Type definitions to fix implicit any errors
+type SceneData = {
+  elements: any[];
+  appState: any;
+  files: Record<string, any>;
+};
+
+type Root = {
+  scene: SceneData;
+};
+
+type LiveblocksUserInfo = {
+  name?: string;
+  color?: string;
+  avatar?: string;
+};
+
+type OthersEntry = {
+  connectionId: string | number;
+  presence: any;
+  info: LiveblocksUserInfo;
+};
+
 // Inner component that will use Liveblocks hooks
 function WhiteboardContent({ onClose }: { onClose: () => void }) {
-  const isUpdatingFromRemote = useRef(false);
-  const [isReady, setIsReady] = useState(false);
-  const [currentScene, setCurrentScene] = useState<any>(null);
-  const lastSavedScene = useRef<any>(null);
+  const isUpdatingFromRemote = useRef<boolean>(false);
+  const [isReady, setIsReady] = useState<boolean>(false);
+  const [currentScene, setCurrentScene] = useState<SceneData | null>(null);
+  const lastSavedScene = useRef<SceneData | null>(null);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Liveblocks storage and mutations
-  const scene = useStorage((root) => root.scene);
-  
+  const scene = useStorage((root: Root) => root.scene);
+
   // Get current user and other collaborators
   const currentUser = useSelf();
   const others = useOthers();
 
   // Create mutation only when ready
-  const updateScene = useMutation(({ storage }, newScene) => {
-    storage.set("scene", newScene);
-  }, []);
+  const updateScene = useMutation(
+    ({ storage }: { storage: { set: (key: string, value: any) => void } }, newScene: SceneData) => {
+      storage.set("scene", newScene);
+    },
+    []
+  );
 
   // Wait for storage to be available before allowing mutations
   useEffect(() => {
-    if (scene !== undefined) {
+    if (scene !== undefined && scene !== null) {
       setCurrentScene(scene);
       // Reduced delay for faster loading
       const timer = setTimeout(() => {
         setIsReady(true);
       }, 100);
-      
+
       return () => clearTimeout(timer);
     }
   }, [scene]);
@@ -53,53 +79,64 @@ function WhiteboardContent({ onClose }: { onClose: () => void }) {
   }, [scene]);
 
   // Debounced save function to reduce lag
-  const debouncedSave = useCallback((newScene: any) => {
-    // Clear existing timeout
-    if (saveTimeoutRef.current) {
-      clearTimeout(saveTimeoutRef.current);
-    }
-
-    // Set new timeout
-    saveTimeoutRef.current = setTimeout(() => {
-      if (!isUpdatingFromRemote.current && isReady) {
-        isUpdatingFromRemote.current = true;
-        
-        try {
-          updateScene(newScene);
-          lastSavedScene.current = newScene;
-        } catch (error) {
-          console.warn("Failed to update scene:", error);
-        } finally {
-          setTimeout(() => {
-            isUpdatingFromRemote.current = false;
-          }, 50); // Reduced delay
-        }
+  const debouncedSave = useCallback(
+    (newScene: SceneData) => {
+      // Clear existing timeout
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
       }
-    }, 300); // Debounce saves by 300ms
-  }, [updateScene, isReady]);
+
+      // Set new timeout
+      saveTimeoutRef.current = setTimeout(() => {
+        if (!isUpdatingFromRemote.current && isReady) {
+          isUpdatingFromRemote.current = true;
+
+          try {
+            updateScene(newScene);
+            lastSavedScene.current = newScene;
+          } catch (error) {
+            console.warn("Failed to update scene:", error);
+          } finally {
+            setTimeout(() => {
+              isUpdatingFromRemote.current = false;
+            }, 50); // Reduced delay
+          }
+        }
+      }, 100); // Debounce saves by 300ms
+    },
+    [updateScene, isReady]
+  );
 
   // Optimized change handler with debouncing
-  const handleChange = useCallback((elements: any, appState: any, files: any) => {
-    if (isUpdatingFromRemote.current || !isReady) return;
-    
-    const newScene = {
-      elements,
-      appState: { 
-        ...appState, 
-        collaborators: undefined
-      },
-      files,
-    };
-    
-    // Only save if scene actually changed
-    if (JSON.stringify(newScene) !== JSON.stringify(lastSavedScene.current)) {
-      debouncedSave(newScene);
-    }
-  }, [debouncedSave, isReady]);
+  const handleChange = useCallback(
+    (elements: any[], appState: any, files: Record<string, any>) => {
+      if (isUpdatingFromRemote.current || !isReady) return;
+
+      const newScene: SceneData = {
+        elements,
+        appState: {
+          ...appState,
+          collaborators: undefined,
+        },
+        files,
+      };
+
+      // Only save if scene actually changed
+      if (JSON.stringify(newScene) !== JSON.stringify(lastSavedScene.current)) {
+        debouncedSave(newScene);
+      }
+    },
+    [debouncedSave, isReady]
+  );
 
   // Memoized collaborator info to prevent unnecessary re-renders
   const collaborators = useMemo(() => {
-    return others.map(({ connectionId, presence, info }) => ({
+    // ensure "others" is an array and typecast for safety
+    return (
+      Array.isArray(others)
+        ? others
+        : Array.from(others as Iterable<OthersEntry>)
+    ).map(({ connectionId, presence, info }: OthersEntry) => ({
       username: info?.name || `User ${connectionId}`,
       color: info?.color || "#ff0000",
       avatarUrl: info?.avatar || undefined,
@@ -121,9 +158,7 @@ function WhiteboardContent({ onClose }: { onClose: () => void }) {
       <Dialog open={true} onOpenChange={onClose}>
         <DialogContent className="min-w-[90vw] h-[90vh] flex flex-col p-0">
           <DialogHeader className="p-4">
-            <DialogTitle className="text-2xl font-bold">
-              Collaborative Whiteboard
-            </DialogTitle>
+            <DialogTitle className="text-2xl font-bold">Collaborative Whiteboard</DialogTitle>
           </DialogHeader>
           <div className="flex-1 flex items-center justify-center">
             <div className="text-lg text-gray-500">Connecting to room...</div>
@@ -152,24 +187,26 @@ function WhiteboardContent({ onClose }: { onClose: () => void }) {
           style={{
             padding: 0,
             margin: 0,
-            transform: 'none',
-            borderRadius: '0.5rem',
+            transform: "none",
+            borderRadius: "0.5rem",
           }}
         >
           <div
             style={{
-              width: '100%',
-              height: '100%',
-              position: 'absolute',
+              width: "100%",
+              height: "100%",
+              position: "absolute",
               top: 0,
               left: 0,
             }}
           >
             <Excalidraw
-              key={currentScene ? JSON.stringify(currentScene.elements) : 'empty'}
-              initialData={currentScene || {
-                appState: { viewBackgroundColor: '#F8F9FA' },
-              }}
+              key={currentScene ? JSON.stringify(currentScene.elements) : "empty"}
+              initialData={
+                currentScene || {
+                  appState: { viewBackgroundColor: "#F8F9FA" },
+                }
+              }
               onChange={handleChange}
               UIOptions={{
                 canvasActions: { clearCanvas: true },
@@ -183,23 +220,23 @@ function WhiteboardContent({ onClose }: { onClose: () => void }) {
 }
 
 // Main component with RoomProvider
-const CollaborativeWhiteboard: React.FC<CollaborativeWhiteboardProps> = ({ 
-  isOpen, 
-  onClose, 
-  roomId 
+const CollaborativeWhiteboard: React.FC<CollaborativeWhiteboardProps> = ({
+  isOpen,
+  onClose,
+  roomId,
 }) => {
   if (!isOpen) return null;
 
   return (
-    <RoomProvider 
-      id={roomId} 
-      initialPresence={{}} 
-      initialStorage={{ 
+    <RoomProvider
+      id={roomId}
+      initialPresence={{}}
+      initialStorage={{
         scene: {
           elements: [],
-          appState: { viewBackgroundColor: '#F8F9FA' },
-          files: {}
-        }
+          appState: { viewBackgroundColor: "#F8F9FA" },
+          files: {},
+        },
       }}
     >
       <WhiteboardContent onClose={onClose} />

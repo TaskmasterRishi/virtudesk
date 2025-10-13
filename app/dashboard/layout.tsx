@@ -14,7 +14,7 @@ export default function DashboardLayout({
   return (
     <SidebarProvider>
       <AppSidebar />
-      <main className="p-4 w-full">
+      <main className="p-4 w-full dashboard-zoom">
         <div className="flex items-center justify-between mb-4 w-full">
           <div className="flex items-center gap-2">
             <SidebarTrigger className="hover:bg-accent p-2 rounded-md transition-colors" />
