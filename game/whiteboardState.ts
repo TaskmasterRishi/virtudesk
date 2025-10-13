@@ -1,9 +1,10 @@
-let isWhiteboardOpen = false;
+let whiteboardOpen = false
 
-export function setWhiteboardOpen(isOpen: boolean) {
-  isWhiteboardOpen = isOpen;
+export function setWhiteboardOpen(open: boolean) {
+  whiteboardOpen = open
 }
 
 export function getWhiteboardOpen(): boolean {
-  return isWhiteboardOpen;
+  return whiteboardOpen
 }
+

@@ -22,6 +22,7 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
   const [isWhiteboardOpen, setIsWhiteboardOpen] = useState(false);
   const { user } = useUser();
   const dialogContentRef = useRef<HTMLDivElement>(null);
+  const [inMeeting,setInMeeting]=useState(false)
 
   const handleOpenWhiteboard = () => {
     setIsWhiteboardOpen(true);
@@ -62,17 +63,26 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
 
   return (
     <div className="w-full h-screen relative">
+        <MediaComponent handleOpenWhiteboard={handleOpenWhiteboard} set={setInMeeting} isWhiteboardOpen={isWhiteboardOpen}>
+          
+        <CollaborativeWhiteboard
+          isOpen={isWhiteboardOpen}
+          onClose={handleCloseWhiteboard}
+          roomId={roomId}
+        />
+    
+        </MediaComponent>
       <div className="absolute bottom-4 right-4 z-50 space-y-2 flex flex-col items-end">
         <LeaveRoomButton />
-        <MediaComponent />
-        <Button
+       
+      </div>
+        {inMeeting && <Button style={{position:"absolute",left:"50%",top:"2%",transform:"translate(-50%,-50%)",zIndex:"10000"}}
           onClick={handleOpenWhiteboard}
           className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-md px-4 py-2 shadow-md hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:ring-offset-1 transition"
           size="sm"
         >
           Open Whiteboard
-        </Button>
-      </div>
+        </Button>}
 
       <PlayersPanel />
 
@@ -86,13 +96,7 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
         <PhaserMap roomId={roomId} />
       </Suspense>
 
-      {isWhiteboardOpen && (
-        <CollaborativeWhiteboard
-          isOpen={isWhiteboardOpen}
-          onClose={handleCloseWhiteboard}
-          roomId={roomId}
-        />
-      )}
+      
     </div>
   );
 }

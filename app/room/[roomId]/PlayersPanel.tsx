@@ -1,9 +1,9 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useUser } from '@clerk/nextjs'
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { getAllPlayers, getSelfId } from '@/game/realtime/PlayerRealtime'
 import { Users2, MessageSquareText, Video } from "lucide-react"
 import TextChat from './TextChat'

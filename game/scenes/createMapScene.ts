@@ -77,7 +77,7 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
         whiteSpace: 'nowrap',
         pointerEvents: 'none',
         userSelect: 'none',
-        zIndex: '1000',
+        zIndex: '50',
         textShadow: '1px 1px 2px rgba(0, 0, 0, 0.8), -1px -1px 2px rgba(0, 0, 0, 0.8)',
         background: 'rgba(0, 0, 0, 0.6)',
         padding: '2px 6px',
@@ -97,6 +97,7 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
       container.appendChild(overlay);
       return overlay;
     }
+
 
     private updateNameOverlayPosition(element: HTMLElement, worldX: number, worldY: number) {
       if (!element || !this.cameras.main) return;
