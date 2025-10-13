@@ -19,8 +19,6 @@ function WhiteboardContent({ onClose }: { onClose: () => void }) {
   const [currentScene, setCurrentScene] = useState<any>(null);
   const lastSavedScene = useRef<any>(null);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const changeCountRef = useRef(0);
-  const lastChangeTimeRef = useRef(0);
 
   // Liveblocks storage and mutations
   const scene = useStorage((root) => root.scene);
@@ -38,45 +36,30 @@ function WhiteboardContent({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     if (scene !== undefined) {
       setCurrentScene(scene);
-      // Ultra-fast loading
+      // Reduced delay for faster loading
       const timer = setTimeout(() => {
         setIsReady(true);
-      }, 50);
+      }, 100);
       
       return () => clearTimeout(timer);
     }
   }, [scene]);
 
-  // Update current scene when storage changes (throttled)
+  // Update current scene when storage changes (debounced)
   useEffect(() => {
     if (scene && !isUpdatingFromRemote.current) {
       setCurrentScene(scene);
     }
   }, [scene]);
 
-  // Advanced debounced save with adaptive timing
-  const adaptiveSave = useCallback((newScene: any) => {
+  // Debounced save function to reduce lag
+  const debouncedSave = useCallback((newScene: any) => {
     // Clear existing timeout
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
     }
 
-    const now = Date.now();
-    const timeSinceLastChange = now - lastChangeTimeRef.current;
-    lastChangeTimeRef.current = now;
-    changeCountRef.current++;
-
-    // Adaptive debounce timing based on change frequency
-    let debounceTime = 300;
-    if (changeCountRef.current > 10 && timeSinceLastChange < 100) {
-      // High frequency changes - longer debounce
-      debounceTime = 500;
-    } else if (changeCountRef.current < 3 && timeSinceLastChange > 200) {
-      // Low frequency changes - shorter debounce
-      debounceTime = 150;
-    }
-
-    // Set new timeout with adaptive timing
+    // Set new timeout
     saveTimeoutRef.current = setTimeout(() => {
       if (!isUpdatingFromRemote.current && isReady) {
         isUpdatingFromRemote.current = true;
@@ -84,23 +67,21 @@ function WhiteboardContent({ onClose }: { onClose: () => void }) {
         try {
           updateScene(newScene);
           lastSavedScene.current = newScene;
-          changeCountRef.current = 0; // Reset counter after successful save
         } catch (error) {
           console.warn("Failed to update scene:", error);
         } finally {
           setTimeout(() => {
             isUpdatingFromRemote.current = false;
-          }, 25); // Ultra-fast update delay
+          }, 50); // Reduced delay
         }
       }
-    }, debounceTime);
+    }, 300); // Debounce saves by 300ms
   }, [updateScene, isReady]);
 
-  // Ultra-optimized change handler
+  // Optimized change handler with debouncing
   const handleChange = useCallback((elements: any, appState: any, files: any) => {
     if (isUpdatingFromRemote.current || !isReady) return;
     
-    // Quick shallow comparison for performance
     const newScene = {
       elements,
       appState: { 
@@ -110,34 +91,20 @@ function WhiteboardContent({ onClose }: { onClose: () => void }) {
       files,
     };
     
-    // Fast comparison - only check elements length and first few elements
-    const hasSignificantChange = 
-      !lastSavedScene.current ||
-      lastSavedScene.current.elements?.length !== elements.length ||
-      (elements.length > 0 && lastSavedScene.current.elements?.[0]?.id !== elements[0]?.id);
-    
-    if (hasSignificantChange) {
-      adaptiveSave(newScene);
+    // Only save if scene actually changed
+    if (JSON.stringify(newScene) !== JSON.stringify(lastSavedScene.current)) {
+      debouncedSave(newScene);
     }
-  }, [adaptiveSave, isReady]);
+  }, [debouncedSave, isReady]);
 
-  // Memoized collaborator info with deep comparison
+  // Memoized collaborator info to prevent unnecessary re-renders
   const collaborators = useMemo(() => {
     return others.map(({ connectionId, presence, info }) => ({
       username: info?.name || `User ${connectionId}`,
       color: info?.color || "#ff0000",
       avatarUrl: info?.avatar || undefined,
     }));
-  }, [others.length, others.map(o => o.connectionId).join(',')]);
-
-  // Memoized scene key for minimal re-renders
-  const sceneKey = useMemo(() => {
-    if (!currentScene) return 'empty';
-    // Only use elements count and first element ID for key
-    const elementsCount = currentScene.elements?.length || 0;
-    const firstElementId = currentScene.elements?.[0]?.id || '';
-    return `${elementsCount}-${firstElementId}`;
-  }, [currentScene?.elements?.length, currentScene?.elements?.[0]?.id]);
+  }, [others]);
 
   // Cleanup timeout on unmount
   useEffect(() => {
@@ -199,7 +166,7 @@ function WhiteboardContent({ onClose }: { onClose: () => void }) {
             }}
           >
             <Excalidraw
-              key={sceneKey}
+              key={currentScene ? JSON.stringify(currentScene.elements) : 'empty'}
               initialData={currentScene || {
                 appState: { viewBackgroundColor: '#F8F9FA' },
               }}
