@@ -12,10 +12,10 @@ export default async function RoomPage({ params }: { params: Promise<{ roomId: s
 
   return (
     <div className="w-full h-screen relative">
+        <MediaComponent />
       <div className="absolute bottom-4 right-4 z-50 space-y-2 flex flex-col items-end">
         {/* Players toggle button should be above leave button, so it's in PlayersPanel. Keep leave below. */}
         <LeaveRoomButton />
-        <MediaComponent />
       </div>
       <PlayersPanel />
       

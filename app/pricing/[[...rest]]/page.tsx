@@ -119,7 +119,7 @@ export default function PricingPage() {
                 transition={{ duration: 0.6 }}
                 viewport={{ once: true }}
                 whileHover={{ scale: 1.05, y: -5 }}
-                transition={{ duration: 0.2 }}
+              
                 className="bg-white p-8 rounded-lg shadow-sm border border-gray-200 hover:shadow-md transition-all duration-200"
               >
                 <div className="w-12 h-12 bg-gradient-to-r from-[#affcfc] to-[#5c03fb] rounded-lg flex items-center justify-center mb-6">

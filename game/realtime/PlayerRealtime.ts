@@ -14,6 +14,7 @@ import { Dispatch, SetStateAction, useCallback } from "react";
 import { off } from "process";
 import { EventEmitter } from 'events';
 import Stream from "stream";
+import { error } from "console";
 
 if (typeof window !== "undefined") {
  window.addEventListener("popstate",async ()=>{
@@ -23,6 +24,103 @@ if (typeof window !== "undefined") {
   await destroyRealtime();
  })
 }
+let MODE:string
+export function setMODE(m:string){
+  MODE=m
+  if(m === 'meeting'){
+    // Send meeting-meta to everyone (like joining a room)
+    safeSend("meeting-meta", { from: playerIdRef });
+  }
+}
+
+// Meeting participants management
+let meetingParticipants: MediaComponentTtype[] = [];
+
+export function setMeetingParticipants(participants: MediaComponentTtype[]) {
+  meetingParticipants = participants;
+}
+
+export function getMeetingParticipants(): MediaComponentTtype[] {
+  return meetingParticipants;
+}
+
+// Meeting functionality
+// let meetingModeRef = false;
+// let meetingParticipantsRef = new Set<string>();
+
+
+export async function startMeeting(setStream:Dispatch<SetStateAction<MediaStream | undefined>>) {
+   closeAllPeerConnections();
+ 
+  
+  // Close all existing peer connections
+  
+  // Get new stream with video and audio for meeting
+  try {
+    const meetingStream = await navigator.mediaDevices.getUserMedia({
+      video: true,
+      audio: true
+    });
+    
+    // Set the new stream
+    setSTREAM(meetingStream);
+    setStream(meetingStream);
+    // Set mode to meeting (this will trigger meeting-meta request)
+    setMODE('meeting');
+    
+    // Notify everyone to join meeting
+    safeSend("meeting-invite", { 
+      from: playerIdRef, 
+      meetingId: `meeting_${Date.now()}`,
+      initiator: playerIdRef 
+    });
+  } catch (error) {
+    console.error("Failed to get meeting stream:", error);
+  }
+}
+
+export async function joinMeeting(setStream:Dispatch<SetStateAction<MediaStream | undefined>>) {
+  closeAllPeerConnections();
+
+   
+    
+    // Close all existing peer connections
+    
+    // Get new stream with video and audio for meeting
+    try {
+      const meetingStream = await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: true
+      });
+      
+      // Set the new stream
+      setSTREAM(meetingStream);
+      setStream(meetingStream)
+      // Set mode to meeting (this will trigger meeting-meta request)
+      setMODE('meeting');
+      
+      // Send meeting join signal
+      
+    } catch (error) {
+      console.error("Failed to get meeting stream:", error);
+    }
+  
+}
+
+
+export function leaveMeeting() {
+  
+  
+  // Send leave signal
+  safeSend("meeting-leave", { from: playerIdRef });
+  
+  // Close all existing connections
+  closeAllPeerConnections();
+}
+
+
+
+
 
 export type PlayerMeta = {
   userId: string;
@@ -77,22 +175,25 @@ let lastSentAt = 0;
 let lastPending: { x: number; y: number } | null = null;
 let sendTimer: ReturnType<typeof setTimeout> | null = null;
 
+let PROXIMITY_DISTANCE=100
+
+export function getMyId(){return playerIdRef}
+
 //Webrtc related
 export type MediaComponentTtype={
   track:MediaStream
   from:string,
 }
 export const RTCEventEmitter=new EventEmitter()
-RTCEventEmitter.on("onTrack",(track)=>{
-})
+
 export function setMediaElement(setState:Dispatch<SetStateAction<{
 track: MediaStream;
     from: string;
-}[]>>){
+}[]>>,mode:string){
   console.log("called setmediaelement")
 
   console.log("onTrack listner added")
-  RTCEventEmitter.on("onTrack",(t:MediaStream,f:string)=>{
+  RTCEventEmitter.on("onTrack in "+mode,(t:MediaStream,f:string)=>{
     console.log("inside the rtceventemnitter ontrack")
     setState((prev)=>{
       for(let a of prev){
@@ -106,8 +207,8 @@ track: MediaStream;
     })
   })
   
-  if(RTCEventEmitter.listenerCount("onClose")===0){
-  RTCEventEmitter.on("onClose",(f:string)=>{
+  if(RTCEventEmitter.listenerCount("onClose in "+mode)===0){
+  RTCEventEmitter.on("onClose in "+mode,(f:string)=>{
     setState((prev)=>{
       const ans=prev.filter((participant)=>{return participant.from!==f})
       
@@ -116,6 +217,9 @@ track: MediaStream;
   })
   }
 }
+
+
+
 export function removeMediaElement(from:string){
   RTCEventEmitter.emit("onClose",from)
 }
@@ -127,40 +231,71 @@ type RTCBroadcastType={
 type ICEBroadcastType={
   from:string,
   to:string,
-  ICE:RTCIceCandidateInit
+  ICE:string
 }
 
 let STREAM:MediaStream|null=null;
-
+export function nullifySTREAM(){
+  STREAM=null
+}
 class PeerService{
   peer:undefined|RTCPeerConnection
+  queue:any[]
+  state:boolean
+  senders:(RTCRtpSender|undefined)[]
+  targetId:string
   constructor(from:string){
+    this.targetId = from
+    this.senders=[]
+    this.queue=[]
+    this.state=false
+    let myHostname="localhost"
+    if(window){myHostname=window.location.hostname}
     if(!this.peer){
       this.peer=new RTCPeerConnection({
-        iceServers:[{
-          urls:[
-            "stun:stun.l.google.com:19302",
-            "stun:global.stun.twilio.com:3478",
-          ]
-        }]
-      })
+      
+      iceServers: [
+        {
+          urls: [
+            'stun:stun.l.google.com:19302',
+            'stun:global.stun.twilio.com:3478',
+        
+          ],
+        },
+      ]
+      
+    });
+      
       if(STREAM){
-        STREAM.getTracks().forEach((track)=>{this.peer?.addTrack(track,STREAM!)})
-        console.log(STREAM)
+        STREAM.getTracks().forEach((track)=>{this.senders.push(this.peer?.addTrack(track,STREAM!))})
+       
       }else{console.error("STREAM is not defined")}
+
       this.peer.onicecandidate=(e)=>{
          if(!e.candidate){return}
-        channel?.send({type:"broadcast",event:"webrtc-ICE",payload:{from:playerIdRef,to:from,payload:e.candidate.toJSON()}})
+         if(!from){
+          console.error("from not defined in constructor")
+          return;
+         }
+         
+         console.log("sending ICE to:", from)
+         channel?.send({type:"broadcast",event:"webrtc-ICE",payload:{from:playerIdRef,to:from,ICE:JSON.stringify(e.candidate)}})
       }
       this.peer.ontrack=(event)=>{
 
-        RTCEventEmitter.emit("onTrack",event.streams[0],from)
+        RTCEventEmitter.emit("onTrack in "+MODE,event.streams[0],from)
        console.log("peer ontrack event",event)
       }
     }
   }
   async getOffer(){
     if(this.peer){
+      if(STREAM){
+         this.senders.forEach((sender)=>{this.peer?.removeTrack(sender!)})
+        this.senders=[]
+        STREAM.getTracks().forEach((track)=>{this.senders.push(this.peer?.addTrack(track,STREAM!))})
+       
+      }else{console.error("STREAM is not defined")}
       const offer=await this.peer.createOffer()
       await this.peer.setLocalDescription(new RTCSessionDescription(offer))
       return offer
@@ -169,19 +304,51 @@ class PeerService{
   async getAnswer(offer:RTCSessionDescriptionInit){
     if(this.peer){
       await this.peer.setRemoteDescription(new RTCSessionDescription(offer))
+      if(STREAM){
+        this.senders.forEach((sender)=>{this.peer?.removeTrack(sender!)})
+        this.senders=[]
+        STREAM.getTracks().forEach((track)=>{this.peer?.addTrack(track,STREAM!)})
+
+      }else{console.error("STREAM is not defined")}
       const answer=await this.peer.createAnswer();
       await this.peer.setLocalDescription(new RTCSessionDescription(answer))
+        this.state=true
+      this.queue.forEach(async (ICE)=>{
+        try{
+        await this.peer?.addIceCandidate(new RTCIceCandidate(ICE))
+          console.log("ICE actually added")
+        }catch(e){console.error("Problem occured while addinf ICE")}
+      })
+      this.queue=[]
+
       return answer;
     }
   }
   async setLocal(ACK:RTCSessionDescriptionInit){
     if(this.peer){
       await this.peer.setRemoteDescription(new RTCSessionDescription(ACK))
+      this.state=true
+      this.queue.forEach(async (ICE)=>{
+         try{
+          await this.peer?.addIceCandidate(new RTCIceCandidate(ICE))
+            console.log("ICE actually added")
+          }catch(e){console.error("Problem occured while addinf ICE")}
+      })
+      this.queue=[]
     }
   }
-  async addICECandidates(ICE:RTCIceCandidateInit){
-    await this.peer?.addIceCandidate(new RTCIceCandidate(ICE))
-    console.log("ICE added")
+  async addICECandidates(ICE:RTCIceCandidate){
+    if(!this.state){
+      this.queue.push(ICE)
+    }
+    else{
+      try{
+      await this.peer?.addIceCandidate(new RTCIceCandidate(ICE))
+      console.log("ICE actually added")
+      }catch(e){console.error("Problem occured while addinf ICE")}
+
+    }
+    
   }
   close(){
     this.peer?.close()
@@ -189,6 +356,19 @@ class PeerService{
 }
 
 const peersConnections=new Map<string,PeerService>()
+
+// Helper functions for meeting mode
+function closeAllPeerConnections() {
+  console.log("Closing all peer connections for meeting mode");
+  peersConnections.forEach((peerService, playerId) => {
+    peerService.close();
+  });
+  peersConnections.clear();
+}
+
+
+
+
 
 
 // --- Utils ---
@@ -216,6 +396,8 @@ function getDistance(a: { x: number; y: number }, b: { x: number; y: number }) {
 }
 
 
+
+
 // --- Init / Realtime setup ---
 export async function initRealtime(opts: {
   roomId: string;
@@ -226,6 +408,7 @@ export async function initRealtime(opts: {
   roomIdRef = roomId;
   playerIdRef = playerId;
   myMetaRef = { ...(meta ?? {}) };
+  
   
   // unsubscribe if previous channel existed
   if (channel) {
@@ -245,6 +428,8 @@ channel.on("broadcast", { event: "webrtc-meta" }, async ({ payload }) => {
   const data = payload as { from: string };
   console.log("meta received", data);
   if (!data.from || data.from === playerIdRef) return;
+  
+  
     if (!peersConnections.has(data.from)) {
       peersConnections.set(data.from, new PeerService(data.from));
     }
@@ -260,11 +445,61 @@ channel.on("broadcast", { event: "webrtc-meta-ACK" }, async ({ payload }) => {
   console.log("meta ACK received", data);
   if (!data.from || data.from === playerIdRef) return;
   if (data.to === playerIdRef) {
+    
     if (!peersConnections.has(data.from)) {
       peersConnections.set(data.from, new PeerService(data.from));
     }
+    
+    // Create offer for the player
     if (STREAM) {
-      createOffer(STREAM,data.from);
+      createOffer(STREAM, data.from);
+    }
+  }
+});
+
+// Meeting meta events - similar to webrtc-meta but for meeting participants only
+channel.on("broadcast", { event: "meeting-meta" }, async ({ payload }) => {
+  if(MODE!=="meeting"){return}
+  const data = payload as { from: string };
+  console.log("meeting-meta received from:", data.from);
+  if (!data.from || data.from === playerIdRef) return;
+  
+  // Always respond to meeting-meta (like webrtc-meta)
+  console.log("Responding to meeting-meta from:", data.from);
+  
+  
+  if (!peersConnections.has(data.from)) {
+    peersConnections.set(data.from, new PeerService(data.from));
+  }
+  
+  channel?.send({
+    type: "broadcast",
+    event: "meeting-meta-ACK",
+    payload: { from: playerIdRef, to: data.from },
+  });
+});
+
+channel.on("broadcast", { event: "meeting-meta-ACK" }, async ({ payload }) => {
+  const data = payload as { from: string; to: string };
+  console.log("meeting-meta-ACK received from:", data.from);
+  if (!data.from || data.from === playerIdRef) return;
+  if (data.to === playerIdRef) {
+    
+    // Only create connection if we're in meeting mode
+    if (MODE === 'meeting') {
+      console.log(`Creating meeting connection to: ${data.from}`);
+      
+      
+      if (!peersConnections.has(data.from)) {
+        peersConnections.set(data.from, new PeerService(data.from));
+      }
+      
+      // Create offer for meeting participant
+      if (STREAM) {
+        createOffer(STREAM, data.from);
+      }
+    } else {
+      console.log(`Not in meeting mode, ignoring meeting-meta-ACK from: ${data.from}`);
     }
   }
 });
@@ -274,6 +509,7 @@ channel.on("broadcast", { event: "webrtc-initials" }, async ({ payload }) => {
   console.log("event: webrtc-initials(new user just joined)", data);
   if (!data.from || data.from === playerIdRef) return;
   if (data.to === playerIdRef) {
+    
     const Peer = peersConnections.get(data.from);
     const answer = await Peer?.getAnswer(data.sdp);
     rtcSafeSend("webrtc-initials-ACK", { from: playerIdRef, to: data.from, sdp: answer });
@@ -284,6 +520,7 @@ channel.on("broadcast", { event: "webrtc-initials-ACK" }, ({ payload }) => {
   const data = payload as { from: string; to: string; sdp: RTCSessionDescriptionInit };
   if (!data.from || data.from === playerIdRef) return;
   if (data.to === playerIdRef) {
+    
     const Peer = peersConnections.get(data.from);
     Peer?.setLocal(data.sdp);
    
@@ -298,12 +535,17 @@ channel.on("broadcast",{event:"webrtc-destroy"},({payload})=>{
     removeMediaElement(data.from)
 })
 channel.on("broadcast",{event:"webrtc-ICE"},async ({payload})=>{
+  
   const data= payload as ICEBroadcastType
   if(!data.from || data.from==playerIdRef){return ;}
   if(data.to===playerIdRef){
       const Peer=peersConnections.get(data.from);
+      console.log("Inside supabase webrtc ICE revieveng Event"+data.ICE)
       if(Peer?.peer && data.ICE){
-        Peer.addICECandidates(data.ICE)
+        try{
+        await Peer.addICECandidates(JSON.parse(data.ICE))
+         console.log("Ice recieved and sent to Peer Service")
+        }catch(e){console.error("Problem oiccures while Sending ICE to Peer Service")}
       }
   }
 })
@@ -318,9 +560,23 @@ channel.on("broadcast",{event:"webrtc-ICE"},async ({payload})=>{
     pushToQueue(data.playerId, sample);
     updateSubscribers.forEach((cb) => cb(data.playerId, sample));
     
-    
+    if(playerIdRef){
+      const myPosition = positionQueues.get(playerIdRef);
+  
+  if (myPosition && myPosition.length > 0) {
+    const myLatestPos = myPosition[myPosition.length - 1];
+    const distance = getDistance(myLatestPos, { x: data.x, y: data.y });
+  
+    const audioElement = document.getElementById(`PeerAudio${data.playerId}`) as HTMLAudioElement;
+    if (audioElement) {
+      audioElement.muted = distance > PROXIMITY_DISTANCE;
+    }
+  }
+    }
     
   });
+  
+
   
   // --- Meta updates ---
   channel.on("broadcast", { event: "player-meta" }, (payload) => {
@@ -332,6 +588,51 @@ channel.on("broadcast",{event:"webrtc-ICE"},async ({payload})=>{
     metaSubscribers.forEach((cb) => cb(data.playerId, next));
     
   
+  });
+  
+  // Meeting event handlers
+  channel.on("broadcast", { event: "meeting-invite" }, (payload) => {
+    const data = payload.payload as { from: string; meetingId: string; initiator: string };
+    if (!data?.from || data.from === playerIdRef) return;
+    
+    console.log("Received meeting invite from", data.from);
+    
+    // Emit custom event for UI to handle
+    window.dispatchEvent(new CustomEvent('meeting-invite', { 
+      detail: { from: data.from, meetingId: data.meetingId, initiator: data.initiator }
+    }));
+  });
+
+  // channel.on("broadcast", { event: "meeting-join" }, (payload) => {
+  //   const data = payload.payload as { from: string; meetingId: string };
+  //   if (!data?.from || data.from === playerIdRef) return;
+    
+  
+  //   console.log("Player joined meeting:", data.from);
+    
+  //   // If we're already in meeting mode, request meeting meta from the new participant
+  //   if (MODE === 'meeting') {
+  //     console.log(`Requesting meeting meta from new participant: ${data.from}`);
+  //     safeSend("meeting-meta", { from: playerIdRef });
+  //   }
+  // });
+
+
+  channel.on("broadcast", { event: "meeting-leave" }, (payload) => {
+    const data = payload.payload as { from: string };
+    if (!data?.from || data.from === playerIdRef) return;
+    
+    
+    console.log("Player left meeting:", data.from);
+
+    
+    // Close connection to the player who left
+    const peerService = peersConnections.get(data.from);
+    if (peerService) {
+      peerService.close();
+      peersConnections.delete(data.from);
+      console.log(`Closed connection to ${data.from} who left meeting`);
+    }
   });
   
   // --- Chat messages ---
@@ -413,17 +714,18 @@ export async function startSignaling() {
   console.log("signalinf start")
 }
 export async function createOffer(localStream:MediaStream|undefined=undefined,fromId:string,){
-console.log("called creatOffer")
+console.log("called createOffer for:", fromId)
     
-      const Peer=peersConnections.get(fromId)
-     // if(localStream){
-       // localStream.getTracks().forEach((track)=>{Peer?.peer?.addTrack(track,localStream)})
-     // }
-      //else{console.error("localStream is undefined")}
-      const offer = await Peer?.getOffer()
+    const Peer=peersConnections.get(fromId)
+    if (!Peer) {
+      console.log(`No peer connection found for ${fromId}`);
+      return;
+    }
+    
+    const offer = await Peer?.getOffer()
+    if (offer) {
       channel?.send({type:"broadcast",event:"webrtc-initials",payload:{from:playerIdRef,to:fromId,sdp:offer}})
-  
-  
+    }
 }
 
 export function sendChatMessage(message: string) {
@@ -490,6 +792,7 @@ export async function destroyRealtime() {
     } catch {}
   }
   channel = null;
+STREAM=null
 
   positionQueues.clear();
   updateSubscribers.clear();
