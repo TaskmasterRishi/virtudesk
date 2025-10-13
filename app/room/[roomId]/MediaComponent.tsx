@@ -201,7 +201,7 @@ export default function  MediaComponent(props:propType){
     
     return<>
     {props.isWhiteboardOpen && (
-        <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', zIndex: 10001 }}>
+        <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', zIndex: 1002 }}>
             {props.children}
         </div>
     )}
