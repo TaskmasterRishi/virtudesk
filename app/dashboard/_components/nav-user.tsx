@@ -18,7 +18,7 @@ export function NavUser() {
   return (
     <SidebarMenu>
       <SidebarMenuItem>
-        <SidebarMenuButton size="lg">
+        <SidebarMenuButton size="lg" className="text-base">
           <Avatar className="h-8 w-8 rounded-lg">
             <AvatarImage src={user.imageUrl} alt={user.fullName || "User"} />
             <AvatarFallback className="rounded-lg font-bold bg-primary text-primary-foreground">
@@ -28,12 +28,12 @@ export function NavUser() {
                 .join("")}
             </AvatarFallback>
           </Avatar>
-          <div className="grid flex-1 text-left text-sm leading-tight">
+          <div className="grid flex-1 text-left text-base leading-tight">
             <span className="truncate font-medium">{user.fullName}</span>
-            <span className="truncate text-xs">{user.primaryEmailAddress?.emailAddress}</span>
+            <span className="truncate text-sm">{user.primaryEmailAddress?.emailAddress}</span>
           </div>
           {orgRole && (
-            <Badge variant="secondary" className="text-xs">
+            <Badge variant="secondary" className="text-sm">
               {orgRole.replace('org:', '')}
             </Badge>
           )}

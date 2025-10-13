@@ -86,12 +86,12 @@ export const CharacterSelection = () => {
                   style={{ imageRendering: 'pixelated' }}
                 />
               ) : (
-                <span className="text-xs">Pick</span>
+                <span className="text-sm">Pick</span>
               )}
             </motion.div>
           </TooltipTrigger>
-          <TooltipContent side="right">
-            <p>{selectedCharacter ? `Change character (${selectedCharacter.name})` : 'Select character'}</p>
+          <TooltipContent side="right" className="text-base">
+            <p className="text-base">{selectedCharacter ? `Change character (${selectedCharacter.name})` : 'Select character'}</p>
           </TooltipContent>
         </Tooltip>
       </TooltipProvider>
@@ -120,7 +120,7 @@ export const CharacterSelection = () => {
                     style={{ imageRendering: 'pixelated' }}
                   />
                 </div>
-                <span className="text-sm font-medium">{character.name}</span>
+                <span className="text-base font-medium">{character.name}</span>
               </motion.div>
             ))}
           </div>

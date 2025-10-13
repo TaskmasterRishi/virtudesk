@@ -26,11 +26,11 @@ export function AppSidebar() {
               className="rounded-lg"
             />
           </div>
-          <div className="grid flex-1 text-left text-sm leading-tight">
+          <div className="grid flex-1 text-left text-base leading-tight">
             <span className="truncate font-medium text-sidebar-foreground">
               Virtudesk
             </span>
-            <span className="text-xs text-sidebar-muted-foreground truncate">
+            <span className="text-sm text-sidebar-muted-foreground truncate">
               Dashboard
             </span>
           </div>

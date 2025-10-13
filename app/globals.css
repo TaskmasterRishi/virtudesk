@@ -124,3 +124,13 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Dashboard zoom (scoped to dashboard layout only) */
+
+
+@media (max-width: 768px) {
+  .dashboard-zoom {
+    zoom: 1; /* Avoid zooming small screens */
+    transform: none;
+  }
+}
