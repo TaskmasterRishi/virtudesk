@@ -135,7 +135,7 @@ function WhiteboardContent({ onClose }: { onClose: () => void }) {
 
   return (
     <Dialog open={true} onOpenChange={onClose}>
-      <DialogContent className="min-w-[90vw] h-[90vh] flex flex-col p-0">
+      <DialogContent className="min-w-[90vw] h-[90vh] flex flex-col p-0 z-[1002]" style={{ zIndex: 1002 }}>
         <DialogHeader className="p-4">
           <DialogTitle className="text-2xl font-bold">
             Collaborative Whiteboard
