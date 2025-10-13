@@ -4,6 +4,9 @@ import {createOffer, setSTREAM,setMediaElement, MediaComponentTtype,RTCEventEmit
     startMeeting, joinMeeting, leaveMeeting, setMeetingParticipants} from "../../../game/realtime/PlayerRealtime"
 import { useAuth } from '@clerk/nextjs';
 import LeaveRoomButton from './LeaveRoomButton';
+import { Button } from "@/components/ui/button";
+import { set } from "react-hook-form";
+import { CollaborativeWhiteboardProps } from "@/components/CollaborativeWhiteboard";
 type Constraints = {
     audio:boolean,
     video:boolean
@@ -16,7 +19,14 @@ const CSS:CSSProperties={
     transform:"translate(-50%,-50%)"
 }
 const videoCss:CSSProperties={height:"360px",width:"480px",backgroundColor:"red"}
-export default function  MediaComponent(){
+type propType={
+    handleOpenWhiteboard:()=>void,
+    set:React.Dispatch<React.SetStateAction<boolean>>,
+    children:React.ReactNode,
+    isWhiteboardOpen:boolean
+
+}
+export default function  MediaComponent(props:propType){
     
     const [stream,setStream] = useState<MediaStream|undefined>(undefined);
     const [participants,setParticipants]=useState<MediaComponentTtype[]>([] as MediaComponentTtype[])
@@ -33,7 +43,7 @@ export default function  MediaComponent(){
         return orgRole.replace('org:', '');
     };
     const [userRole,setUserRole]=useState<string>(getUserRole()) // admin | team_manager | member
-    
+   
     
     const requestMedia= useCallback(async (a:boolean=true,v:boolean=false)=>{
 
@@ -95,7 +105,7 @@ export default function  MediaComponent(){
     const handleStartMeeting = useCallback(async () => {
         await startMeeting(setStream);
         setInMeeting(true);
-
+        props.set(true)
         setModeState('meeting');
         setMODE('meeting');
     }, []);
@@ -103,6 +113,7 @@ export default function  MediaComponent(){
     const handleAcceptMeeting = useCallback(async () => {
         await joinMeeting(setStream);
         setInMeeting(true);
+        props.set(true)
         setModeState('meeting');
         setMODE('meeting');
         setShowNotification(false);
@@ -185,7 +196,15 @@ export default function  MediaComponent(){
             })
    },[participants])
       
+   
+
+    
     return<>
+    {props.isWhiteboardOpen && (
+        <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', zIndex: 10001 }}>
+            {props.children}
+        </div>
+    )}
         {/* Meeting Component - Full screen when in meeting */}
         {inMeeting && (
             <div className="fixed top-0 left-0 w-full h-full z-[100] pointer-events-auto bg-gray-900">
@@ -196,6 +215,13 @@ export default function  MediaComponent(){
                             <h2 className="text-lg font-semibold text-white">Meeting in Progress</h2>
                             <p className="text-sm text-gray-300">{meetingParticipants.length + 1} participants</p>
                         </div>
+                        {/* <Button
+                                  onClick={props.handleOpenWhiteboard}
+                                  className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-md px-4 py-2 shadow-md hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:ring-offset-1 transition"
+                                  size="sm"
+                                >
+                                  Open Whiteboard
+                                </Button> */}
                         <LeaveRoomButton />
                     </div>
                     
@@ -203,6 +229,7 @@ export default function  MediaComponent(){
                     <div className="flex-1 p-4 overflow-y-auto">
                         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 h-full">
                             {/* My Video */}
+                            
                             {mode==="meeting" && (
                                 <div className="relative bg-gray-800 rounded-lg overflow-hidden">
                                     <video

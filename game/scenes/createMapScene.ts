@@ -12,6 +12,7 @@ import {
 } from "../utils/spriteUtils";
 import { supabase } from "@/utils/supabase/client";
 import { onChatInputFocusChange } from "../chatState"; // Import onChatInputFocusChange
+import { getWhiteboardOpen } from "../whiteboardState";
 
 export interface MapSceneOptions {
   roomId: string;
@@ -100,6 +101,15 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
 
     private updateNameOverlayPosition(element: HTMLElement, worldX: number, worldY: number) {
       if (!element || !this.cameras.main) return;
+
+      // Hide name overlays when whiteboard is open
+      if (getWhiteboardOpen()) {
+        element.style.display = 'none';
+        return;
+      }
+
+      // Show name overlays when whiteboard is closed
+      element.style.display = 'block';
 
       // Convert world coordinates to screen coordinates
       const camera = this.cameras.main;
