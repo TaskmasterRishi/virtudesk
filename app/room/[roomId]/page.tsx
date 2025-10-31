@@ -7,6 +7,8 @@ import { LoaderTwo } from '@/components/ui/loader';
 import LeaveRoomButton from './LeaveRoomButton';
 import PlayersPanel from './PlayersPanel';
 import MediaComponent from './MediaComponent';
+import RoomTasksPanel from './TasksPanel';
+import TaskAssignmentNotification from '@/components/TaskAssignmentNotification';
 import { useUser } from '@clerk/nextjs';
 import { Button } from '@/components/ui/button';
 import type { CollaborativeWhiteboardProps } from '@/components/CollaborativeWhiteboard';
@@ -85,6 +87,8 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
         </Button>}
 
       <PlayersPanel />
+	  <RoomTasksPanel roomId={roomId} />
+	  <TaskAssignmentNotification />
 
       <Suspense
         fallback={
@@ -96,7 +100,7 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
         <PhaserMap roomId={roomId} />
       </Suspense>
 
-      
+	  
     </div>
   );
 }
