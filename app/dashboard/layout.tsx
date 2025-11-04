@@ -4,6 +4,8 @@ import "../globals.css";
 import { AppSidebar } from "./_components/app-sidebar";
 import { useUser } from "@clerk/nextjs";
 import { CharacterSelection } from "./_components/CharacterSelection";
+import TasksPanel from "./_components/TasksPanel";
+import TaskAssignmentNotification from "@/components/TaskAssignmentNotification";
 
 export default function DashboardLayout({
   children,
@@ -27,6 +29,8 @@ export default function DashboardLayout({
         <div className="w-full">
           {children}
         </div>
+        <TasksPanel />
+        <TaskAssignmentNotification />
       </main>
     </SidebarProvider>
   );
