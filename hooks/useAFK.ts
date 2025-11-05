@@ -2,8 +2,8 @@ import { useCallback, useEffect, useRef } from 'react'
 import { useAFKStore } from '@/stores/afkStore'
 import { setAFKStatus } from '@/game/realtime/PlayerRealtime'
 
-const TWO_MIN = 2  * 1000
-const FIVE_MIN = 10  * 1000
+const TWO_MIN = 2  * 60 * 1000
+const FIVE_MIN = 5  * 60 * 1000
 
 export function useAFK() {
 	const setActiveNow = useAFKStore((s) => s.setActiveNow)
