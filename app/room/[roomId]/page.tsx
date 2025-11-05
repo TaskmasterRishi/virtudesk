@@ -3,6 +3,9 @@
 import React, { Suspense, useState, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import PhaserMap from '@/game/PhaserMap';
+import { useAFK } from '@/hooks/useAFK';
+import AFKBanner from '@/components/AFKBanner';
+import AFKToast from '@/components/AFKToast';
 import { LoaderTwo } from '@/components/ui/loader';
 import LeaveRoomButton from './LeaveRoomButton';
 import PlayersPanel from './PlayersPanel';
@@ -24,6 +27,9 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
   const [isWhiteboardOpen, setIsWhiteboardOpen] = useState(false);
   const { user } = useUser();
   const dialogContentRef = useRef<HTMLDivElement>(null);
+
+  // Install AFK detectors
+  useAFK();
   const [inMeeting,setInMeeting]=useState(false)
 
   const handleOpenWhiteboard = () => {
@@ -65,6 +71,8 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
 
   return (
     <div className="w-full h-screen relative">
+      <AFKBanner />
+      <AFKToast />
         <MediaComponent handleOpenWhiteboard={handleOpenWhiteboard} set={setInMeeting} isWhiteboardOpen={isWhiteboardOpen}>
           
         <CollaborativeWhiteboard

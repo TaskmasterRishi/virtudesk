@@ -141,7 +141,7 @@ export type PlayerPosPayload = {
 
 type PositionSample = { x: number; y: number; ts: number };
 type QueueMap = Map<string, PositionSample[]>;
-type PlayerMetaInfo = { name?: string; character?: string; avatar?: string };
+type PlayerMetaInfo = { name?: string; character?: string; avatar?: string; status?: 'afk' | 'active' };
 
 export type ChatMessage = {
   id: string; // Unique message ID
@@ -178,6 +178,14 @@ let sendTimer: ReturnType<typeof setTimeout> | null = null;
 let PROXIMITY_DISTANCE=100
 
 export function getMyId(){return playerIdRef}
+
+// --- AFK API ---
+export function setAFKStatus(afk: boolean) {
+  myMetaRef = { ...myMetaRef, status: afk ? 'afk' : 'active' };
+  if (playerIdRef) {
+    safeSend("player-meta", { playerId: playerIdRef, ...myMetaRef });
+  }
+}
 
 //Webrtc related
 export type MediaComponentTtype={
@@ -583,7 +591,7 @@ channel.on("broadcast",{event:"webrtc-ICE"},async ({payload})=>{
     const data = payload.payload as { playerId: string; name?: string; character?: string; avatar?: string };
     if (!data?.playerId || data.playerId === playerIdRef) return;
     lastSeen.set(data.playerId, Date.now());
-    const next: PlayerMetaInfo = { name: data.name, character: data.character, avatar: data.avatar };
+    const next: PlayerMetaInfo = { name: data.name, character: data.character, avatar: data.avatar, status: (payload.payload as any)?.status };
     metaCache.set(data.playerId, next);
     metaSubscribers.forEach((cb) => cb(data.playerId, next));
     
