@@ -7,6 +7,7 @@ import LeaveRoomButton from './LeaveRoomButton';
 import { Button } from "@/components/ui/button";
 import { set } from "react-hook-form";
 import { CollaborativeWhiteboardProps } from "@/components/CollaborativeWhiteboard";
+import { Video } from "lucide-react";
 type Constraints = {
     audio:boolean,
     video:boolean
@@ -237,7 +238,7 @@ export default function  MediaComponent(props:propType){
                                         autoPlay
                                         playsInline
                                         
-                                        className="w-full h-full object-cover"
+                                        className="w-full h-full object-cover -scale-x-100"
                                     />
                                     <div className="absolute bottom-2 left-2 bg-black bg-opacity-50 text-white px-2 py-1 rounded text-sm">
                                         You
@@ -252,7 +253,7 @@ export default function  MediaComponent(props:propType){
                                         id={`meetingVideo${participant.from}`}
                                         autoPlay
                                         playsInline
-                                        className="w-full h-full object-cover"
+                                        className="w-full h-full object-cover -scale-x-100"
                                     />
                                     <div className="absolute bottom-2 left-2 bg-black bg-opacity-50 text-white px-2 py-1 rounded text-sm">
                                         {participant.from}
@@ -268,9 +269,10 @@ export default function  MediaComponent(props:propType){
         {/* Start Meeting Button - Only for admin/manager when not in meeting */}
         {(userRole === "admin" || userRole === "team_manager") && !inMeeting && (
             <button 
-                className="absolute bottom-20 right-4 z-50 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow-lg transition-colors duration-200 font-medium"
+                className="absolute top-50 right-4 z-50 px-4 py-2 bg-blue-600 border-slate-200 hover:bg-blue-700 text-white rounded-lg shadow-lg transition-colors duration-200 font-medium flex items-center gap-2"
                 onClick={handleStartMeeting}
             >
+                <Video className="w-4 h-4" />
                 Start Meeting
             </button>
         )}

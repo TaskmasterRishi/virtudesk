@@ -1,8 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useAuth, useUser } from "@clerk/nextjs";
-import { getUserRoomTasks, getRoomTasks, type TaskWithAssignments, updateTaskAssignmentStatus, createTask, submitTaskReport } from "@/app/actions/Tasks";
+import { useAuth, useOrganization, useUser } from "@clerk/nextjs";
+import { getUserRoomTasks, getRoomTasks, type TaskWithAssignments, updateTaskAssignmentStatus, createTask, submitTaskReport, updateTask } from "@/app/actions/Tasks";
 import { uploadTaskAttachments, uploadReportAttachments, type UploadedAttachment, getTaskAttachmentPublicUrl } from "@/utils/uploadTaskAttachments";
 import { supabase } from "@/utils/supabase/client";
 import { Card } from "@/components/ui/card";
@@ -23,7 +23,8 @@ export default function RoomTasksPanel({ roomId }: { roomId: string; }) {
   const [tasks, setTasks] = useState<TaskWithAssignments[]>([]);
   const [loading, setLoading] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
-
+  const { organization } = useOrganization();
+  const [members, setMembers] = useState<Array<{ id: string; name: string; role: string }>>([]);
   const isAdmin = useMemo(() => orgRole === 'org:admin' || orgRole === 'admin', [orgRole]);
 
   const fetchTasks = useCallback(async () => {
@@ -43,6 +44,27 @@ export default function RoomTasksPanel({ roomId }: { roomId: string; }) {
   }, [roomId, isAdmin, user]);
 
   useEffect(() => { fetchTasks(); }, [fetchTasks]);
+
+  useEffect(() => {
+    const loadMembers = async () => {
+      if (!organization || !organization.getMemberships) return;
+      try {
+        const list = await organization.getMemberships();
+        const arr = (list?.data || [])
+          .filter((m: any) => m.publicUserData?.userId)
+          .map((m: any) => ({
+            id: m.publicUserData.userId as string,
+            name:
+              (m.publicUserData.firstName && m.publicUserData.lastName)
+                ? `${m.publicUserData.firstName} ${m.publicUserData.lastName}`
+                : (m.publicUserData.identifier as string) || 'Member',
+            role: m.role,
+          }));
+        setMembers(arr);
+      } catch {}
+    };
+    void loadMembers();
+  }, [organization]);
 
   useEffect(() => {
     if (!roomId) return;
@@ -92,7 +114,7 @@ export default function RoomTasksPanel({ roomId }: { roomId: string; }) {
                   <DialogTrigger asChild>
                     <Button size="sm">New</Button>
                   </DialogTrigger>
-                  <CreateRoomTaskDialog orgId={orgId || ''} roomId={roomId} onCreated={() => { setCreateOpen(false); fetchTasks(); }} />
+                  <CreateRoomTaskDialog orgId={orgId || ''} roomId={roomId} members={members} onCreated={() => { setCreateOpen(false); fetchTasks(); }} />
                 </Dialog>
               )}
             </div>
@@ -101,7 +123,7 @@ export default function RoomTasksPanel({ roomId }: { roomId: string; }) {
               <div className="flex-1 overflow-y-auto overflow-x-hidden divide-y divide-slate-100 px-1">
                 <div className="space-y-2 py-1 max-w-full">
                   {tasks.map((t) => (
-                    <RoomTaskItem key={t.id} task={t} onUpdated={fetchTasks} />
+                    <RoomTaskItem key={t.id} task={t} onUpdated={fetchTasks} isAdmin={isAdmin} members={members} />
                   ))}
                   {!loading && tasks.length === 0 && (
                     <Card className="p-4 text-center text-sm text-muted-foreground">No tasks yet.</Card>
@@ -116,10 +138,16 @@ export default function RoomTasksPanel({ roomId }: { roomId: string; }) {
   );
 }
 
-function RoomTaskItem({ task, onUpdated }: { task: TaskWithAssignments; onUpdated: () => void; }) {
+function RoomTaskItem({ task, onUpdated, isAdmin, members }: { task: TaskWithAssignments; onUpdated: () => void; isAdmin: boolean; members: Array<{ id: string; name: string; role: string }>; }) {
   const { user } = useUser();
-  const isAssignee = task.assignments.some(a => a.assigned_to === user?.id);
+  const userAssignment = useMemo(() => task.assignments.find(a => a.assigned_to === user?.id), [task.assignments, user]);
+  const canShowEmployeeActions = useMemo(() => !!userAssignment && !isAdmin && task.status !== 'completed', [userAssignment, isAdmin, task.status]);
   const [updating, setUpdating] = useState(false);
+  const getMemberName = useCallback((userId: string) => {
+    const member = members.find(m => m.id === userId);
+    return member?.name ?? userId.slice(0, 8);
+  }, [members]);
+
   const [reportOpen, setReportOpen] = useState(false);
   const [reportText, setReportText] = useState('');
   const [reportSubmitting, setReportSubmitting] = useState(false);
@@ -156,6 +184,9 @@ function RoomTaskItem({ task, onUpdated }: { task: TaskWithAssignments; onUpdate
     setUpdating(true);
     try {
       await updateTaskAssignmentStatus(task.id, user.id, status);
+      if (status === 'in_progress' && task.status !== 'in_progress') {
+        await updateTask(task.id, { status: 'in_progress' });
+      }
       onUpdated();
     } finally {
       setUpdating(false);
@@ -266,10 +297,22 @@ function RoomTaskItem({ task, onUpdated }: { task: TaskWithAssignments; onUpdate
               </div>
             </div>
           )}
-          {isAssignee && task.status !== 'completed' && (
+          {task.assignments.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {task.assignments.map((a) => (
+                <Badge key={a.id} variant="secondary" className="text-xs"><Users2 className="mr-1" size={12}/> {getMemberName(a.assigned_to)}</Badge>
+              ))}
+            </div>
+          )}
+          {task.due_date && (
+            <div className="mt-2">
+              <Badge variant="outline" className="text-xs">Due {new Date(task.due_date).toLocaleDateString()}</Badge>
+            </div>
+          )}
+          {canShowEmployeeActions && (
             <div className="mt-3 flex items-center gap-2 flex-wrap">
               <TooltipProvider>
-                <Tooltip>
+                {/* <Tooltip>
                   <TooltipTrigger asChild>
                     <Button size="sm" variant="secondary" disabled={updating} onClick={() => setStatus('in_progress')} className="gap-1"><PlayCircle size={16}/> Start</Button>
                   </TooltipTrigger>
@@ -280,7 +323,23 @@ function RoomTaskItem({ task, onUpdated }: { task: TaskWithAssignments; onUpdate
                     <Button size="sm" className="bg-green-600 hover:bg-green-700 gap-1" disabled={updating} onClick={() => setStatus('completed')}><CheckCircle2 size={16}/> Done</Button>
                   </TooltipTrigger>
                   <TooltipContent>Mark your assignment Completed</TooltipContent>
-                </Tooltip>
+                </Tooltip> */}
+                {userAssignment?.status === 'pending' && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button size="sm" variant="secondary" disabled={updating} onClick={() => setStatus('in_progress')} className="gap-1"><PlayCircle size={16}/> Start</Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Set your assignment In Progress</TooltipContent>
+                  </Tooltip>
+                )}
+                {userAssignment?.status === 'in_progress' && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button size="sm" className="bg-green-600 hover:bg-green-700 gap-1" disabled={updating} onClick={() => setStatus('completed')}><CheckCircle2 size={16}/> Completed</Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Mark your assignment Completed</TooltipContent>
+                  </Tooltip>
+                )}
                 <Dialog open={reportOpen} onOpenChange={(open) => { setReportOpen(open); if (!open) setReportError(null); }}>
                   <DialogTrigger asChild>
                     <Button size="sm" variant="outline" className="gap-1"><Paperclip size={16}/> Submit report</Button>
@@ -349,20 +408,42 @@ function RoomTaskItem({ task, onUpdated }: { task: TaskWithAssignments; onUpdate
   );
 }
 
-function CreateRoomTaskDialog({ orgId, roomId, onCreated }: { orgId: string; roomId: string; onCreated: () => void; }) {
+function CreateRoomTaskDialog({ orgId, roomId, onCreated, members }: { orgId: string; roomId: string; onCreated: () => void; members: Array<{ id: string; name: string; role: string }> }) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState<Priority>('medium');
   const [assignees, setAssignees] = useState<string[]>([]);
-  const [participants, setParticipants] = useState<Array<{ id: string; name?: string; avatar?: string }>>([]);
+  const [participants, setParticipants] = useState<Array<{ id: string; name: string }>>([]);
+  const [due, setDue] = useState<string>("");
   const [submitting, setSubmitting] = useState(false);
   const [files, setFiles] = useState<File[]>([]);
   const [uploaded, setUploaded] = useState<UploadedAttachment[]>([]);
 
   useEffect(() => {
-    const list = getAllPlayers();
-    setParticipants(list);
-  }, []);
+    const refreshParticipants = () => {
+      const list = getAllPlayers();
+      const mapped = list
+        .filter((p) => !!p.id)
+        .map((p) => {
+          const match = members.find(m => m.id === p.id);
+          const displayName = match?.name || p.name || p.id.slice(0, 8);
+          const role = match?.role;
+          return { id: p.id, name: displayName, role };
+        })
+        .filter((p) => {
+          const member = members.find(m => m.id === p.id);
+          return member ? (member.role !== 'org:admin' && member.role !== 'admin') : true;
+        });
+      const prepared = mapped.map(({ id, name }) => ({ id, name }));
+      setParticipants(prepared);
+      console.log("participants : ", prepared);
+      setAssignees((prev) => prev.filter(id => prepared.some(p => p.id === id)));
+    };
+
+    refreshParticipants();
+    const interval = setInterval(refreshParticipants, 1000);
+    return () => clearInterval(interval);
+  }, [members]);
 
   const onSubmit = async () => {
     if (!title.trim()) return;
@@ -373,9 +454,9 @@ function CreateRoomTaskDialog({ orgId, roomId, onCreated }: { orgId: string; roo
         attachments = await uploadTaskAttachments(orgId, files);
         setUploaded(attachments);
       }
-      await createTask({ org_id: orgId, room_id: roomId, title: title.trim(), description: description.trim() || undefined, priority, assigned_to: assignees, attachments });
+      await createTask({ org_id: orgId, room_id: roomId, title: title.trim(), description: description.trim() || undefined, priority, assigned_to: assignees, attachments, due_date: due || null });
       onCreated();
-      setTitle(""); setDescription(""); setPriority('medium'); setAssignees([]); setFiles([]); setUploaded([]);
+      setTitle(""); setDescription(""); setPriority('medium'); setAssignees([]); setFiles([]); setUploaded([]); setDue("");
     } finally { setSubmitting(false); }
   };
 
@@ -394,6 +475,7 @@ function CreateRoomTaskDialog({ orgId, roomId, onCreated }: { orgId: string; roo
             <option value="high">High</option>
             <option value="urgent">Urgent</option>
           </select>
+          <Input type="date" value={due} onChange={(e) => setDue(e.target.value)} />
         </div>
         <div className="space-y-2">
           <div className="text-sm mb-1">Attachments</div>
@@ -427,7 +509,7 @@ function CreateRoomTaskDialog({ orgId, roomId, onCreated }: { orgId: string; roo
           <div className="flex flex-wrap gap-2">
             {participants.map((p) => (
               <Button key={p.id} type="button" size="sm" variant={assignees.includes(p.id) ? 'default' : 'outline'} onClick={() => setAssignees(prev => prev.includes(p.id) ? prev.filter(x => x !== p.id) : [...prev, p.id])}>
-                {p.name || p.id.slice(0,8)}
+                {p.name}
               </Button>
             ))}
           </div>

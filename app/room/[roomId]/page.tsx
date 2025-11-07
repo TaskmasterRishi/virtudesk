@@ -81,9 +81,9 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
           roomId={roomId}
         />
       </MediaComponent>
-      <div className="absolute bottom-4 right-4 z-50 flex flex-col items-end space-y-2">
+      <div className="absolute top-4 right-4 z-50 flex flex-col items-end space-y-2">
         <WorkSessionTimer />
-        <LeaveRoomButton />
+        {/* <LeaveRoomButton /> */}
       </div>
         {inMeeting && <Button style={{position:"absolute",left:"50%",top:"2%",transform:"translate(-50%,-50%)",zIndex:"10000"}}
           onClick={handleOpenWhiteboard}
