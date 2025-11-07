@@ -10,6 +10,10 @@ export function useAFK() {
 	const setToastShown = useAFKStore((s) => s.setInactiveToastShown)
 	const setAFKLocal = useAFKStore((s) => s.setAFK)
   const isAFK = useAFKStore((s) => s.isAFK)
+  const startTracking = useAFKStore((s) => s.startTracking)
+  const pauseTracking = useAFKStore((s) => s.pauseTracking)
+  const resumeTracking = useAFKStore((s) => s.resumeTracking)
+  const stopTracking = useAFKStore((s) => s.stopTracking)
   // keep a ref for event handlers to avoid stale closures
   const isAFKRef = useRef(isAFK)
   useEffect(() => { isAFKRef.current = isAFK }, [isAFK])
@@ -36,8 +40,9 @@ export function useAFK() {
 		afkTimer.current = window.setTimeout(() => {
 			setAFKLocal(true)
 			setAFKStatus(true)
+			pauseTracking()
 		}, FIVE_MIN)
-	}, [clearTimers, setToastShown, setAFKLocal])
+	}, [clearTimers, setToastShown, setAFKLocal, pauseTracking])
 
 	const markActive = useCallback(() => {
 		setActiveNow()
@@ -46,8 +51,9 @@ export function useAFK() {
 			setAFKLocal(false)
 			setAFKStatus(false)
 		}
+		resumeTracking()
 		scheduleTimers()
-	}, [isAFK, scheduleTimers, setActiveNow, setToastShown, setAFKLocal])
+	}, [isAFK, scheduleTimers, setActiveNow, setToastShown, setAFKLocal, resumeTracking])
 
   useEffect(() => {
     // User activity events
@@ -77,8 +83,13 @@ export function useAFK() {
       if (document.visibilityState === 'visible') {
         // Returning to tab does not auto-clear AFK; require an input
         if (!isAFKRef.current) markActive()
+      } else if (document.visibilityState === 'hidden') {
+        // Hidden tab -> pause timing immediately
+        pauseTracking()
       }
     }
+    const onBlur = () => { pauseTracking() }
+    const onFocus = () => { if (!isAFKRef.current) resumeTracking() }
 
     window.addEventListener('mousemove', onMouseMove, { passive: true })
     window.addEventListener('mousedown', onMouseDown, { passive: true })
@@ -86,7 +97,10 @@ export function useAFK() {
     window.addEventListener('touchstart', onTouchStart, { passive: true })
     window.addEventListener('scroll', onScroll, { passive: true })
     document.addEventListener('visibilitychange', onVisibility)
+    window.addEventListener('blur', onBlur)
+    window.addEventListener('focus', onFocus)
 
+    startTracking()
     scheduleTimers()
 
     return () => {
@@ -97,6 +111,18 @@ export function useAFK() {
       window.removeEventListener('touchstart', onTouchStart)
       window.removeEventListener('scroll', onScroll)
       document.removeEventListener('visibilitychange', onVisibility)
+      window.removeEventListener('blur', onBlur)
+      window.removeEventListener('focus', onFocus)
+      stopTracking()
     }
-  }, [clearTimers, scheduleTimers, markActive])
+  }, [clearTimers, scheduleTimers, markActive, startTracking, stopTracking, pauseTracking, resumeTracking])
+
+  // Keep timer exactly in sync with AFK status
+  useEffect(() => {
+    if (isAFK) {
+      pauseTracking()
+    } else {
+      resumeTracking()
+    }
+  }, [isAFK, pauseTracking, resumeTracking])
 }
