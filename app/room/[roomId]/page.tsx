@@ -16,6 +16,7 @@ import { useUser } from '@clerk/nextjs';
 import { Button } from '@/components/ui/button';
 import type { CollaborativeWhiteboardProps } from '@/components/CollaborativeWhiteboard';
 import { setWhiteboardOpen } from '@/game/whiteboardState';
+import WorkSessionTimer from './WorkSessionTimer';
 
 const CollaborativeWhiteboard = dynamic(() => import('@/components/CollaborativeWhiteboard'), {
   ssr: false,
@@ -73,18 +74,16 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
     <div className="w-full h-screen relative">
       <AFKBanner />
       <AFKToast />
-        <MediaComponent handleOpenWhiteboard={handleOpenWhiteboard} set={setInMeeting} isWhiteboardOpen={isWhiteboardOpen}>
-          
+      <MediaComponent handleOpenWhiteboard={handleOpenWhiteboard} set={setInMeeting} isWhiteboardOpen={isWhiteboardOpen}>
         <CollaborativeWhiteboard
           isOpen={isWhiteboardOpen}
           onClose={handleCloseWhiteboard}
           roomId={roomId}
         />
-    
-        </MediaComponent>
-      <div className="absolute bottom-4 right-4 z-50 space-y-2 flex flex-col items-end">
+      </MediaComponent>
+      <div className="absolute bottom-4 right-4 z-50 flex flex-col items-end space-y-2">
+        <WorkSessionTimer />
         <LeaveRoomButton />
-       
       </div>
         {inMeeting && <Button style={{position:"absolute",left:"50%",top:"2%",transform:"translate(-50%,-50%)",zIndex:"10000"}}
           onClick={handleOpenWhiteboard}

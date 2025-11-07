@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth, useOrganization, useUser } from "@clerk/nextjs";
-import { assignTaskToUsers, createTask, deleteTask, getTasksByUserRole, updateTask, updateTaskAssignmentStatus, type TaskWithAssignments } from "@/app/actions/Tasks";
+import { assignTaskToUsers, createTask, deleteTask, getTasksByUserRole, submitTaskReport, updateTask, updateTaskAssignmentStatus, type TaskWithAssignments } from "@/app/actions/Tasks";
+import { uploadTaskAttachments, uploadReportAttachments, type UploadedAttachment, getTaskAttachmentPublicUrl } from "@/utils/uploadTaskAttachments";
+import { supabase } from "@/utils/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -13,7 +15,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { getRooms } from "@/app/actions/Room";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { CheckCircle2, PlayCircle, Trash2, UserPlus2, Clock3, AlertTriangle, CheckCheck, Tag, LayoutList } from "lucide-react";
+import { CheckCircle2, PlayCircle, Trash2, UserPlus2, Clock3, AlertTriangle, CheckCheck, Tag, LayoutList, Paperclip } from "lucide-react";
 
 type Priority = 'low' | 'medium' | 'high' | 'urgent';
 type Status = 'pending' | 'in_progress' | 'completed' | 'cancelled';
@@ -44,6 +46,47 @@ export default function TasksPanel() {
   useEffect(() => {
     fetchTasks();
   }, [fetchTasks]);
+
+  useEffect(() => {
+    if (!orgId) return;
+    let channel = supabase
+      .channel(`tasks-dashboard-${orgId}-${user?.id ?? 'guest'}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'tasks', filter: `org_id=eq.${orgId}` },
+        () => { void fetchTasks(); }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'task_reports' },
+        () => { void fetchTasks(); }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'task_report_attachments' },
+        () => { void fetchTasks(); }
+      );
+
+    if (user) {
+      channel = channel.on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'task_assignments', filter: `assigned_to=eq.${user.id}` },
+        () => { void fetchTasks(); }
+      );
+    } else {
+      channel = channel.on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'task_assignments' },
+        () => { void fetchTasks(); }
+      );
+    }
+
+    void channel.subscribe();
+
+    return () => {
+      void channel.unsubscribe();
+    };
+  }, [orgId, user?.id, fetchTasks]);
 
   useEffect(() => {
     const loadRooms = async () => {
@@ -112,6 +155,36 @@ function TaskItem({ task, canManage, onUpdated }: { task: TaskWithAssignments; c
   const isAssignee = useMemo(() => task.assignments.some(a => a.assigned_to === user?.id), [task.assignments, user]);
 
   const [updating, setUpdating] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportText, setReportText] = useState('');
+  const [reportSubmitting, setReportSubmitting] = useState(false);
+  const [reportError, setReportError] = useState<string | null>(null);
+  const [reportFiles, setReportFiles] = useState<File[]>([]);
+  const [reportUploads, setReportUploads] = useState<UploadedAttachment[]>([]);
+  const reports = useMemo(() => {
+    const dedup = new Map<string, TaskWithAssignments['reports'][number]>();
+    (task.reports || []).forEach((report) => {
+      if (!report) return;
+      const key = [
+        report.id ?? '',
+        report.task_id ?? '',
+        report.submitted_by ?? '',
+        (report.report_text || '').trim(),
+        report.created_at ?? '',
+      ].join('|');
+      const existing = dedup.get(key);
+      if (!existing) {
+        dedup.set(key, report);
+        return;
+      }
+      const existingAttachments = existing.attachments ?? [];
+      const newAttachments = report.attachments ?? [];
+      if (newAttachments.length > existingAttachments.length) {
+        dedup.set(key, { ...report, attachments: newAttachments });
+      }
+    });
+    return Array.from(dedup.values());
+  }, [task.reports]);
 
   const changeStatus = async (status: Status) => {
     setUpdating(true);
@@ -144,6 +217,32 @@ function TaskItem({ task, canManage, onUpdated }: { task: TaskWithAssignments; c
     }
   };
 
+  const onSubmitReport = async () => {
+    if (!reportText.trim()) {
+      setReportError('Please enter a brief report before submitting.');
+      return;
+    }
+    setReportSubmitting(true);
+    setReportError(null);
+    try {
+      let attachments: UploadedAttachment[] = [];
+      if (reportFiles.length > 0) {
+        attachments = await uploadReportAttachments(task.org_id, task.id, reportFiles);
+        setReportUploads(attachments);
+      }
+      await submitTaskReport({ task_id: task.id, report_text: reportText, attachments });
+      setReportText('');
+      setReportFiles([]);
+      setReportUploads([]);
+      setReportOpen(false);
+      onUpdated();
+    } catch (error: any) {
+      setReportError(error?.message || 'Failed to submit report');
+    } finally {
+      setReportSubmitting(false);
+    }
+  };
+
   return (
     <Card className="p-4 w-full overflow-hidden">
       <div className="flex items-start gap-3 min-w-0">
@@ -158,6 +257,70 @@ function TaskItem({ task, canManage, onUpdated }: { task: TaskWithAssignments; c
           </div>
           {task.description && (
             <div className="text-sm text-muted-foreground mt-1 line-clamp-2 break-words">{task.description}</div>
+          )}
+          {task.attachments && task.attachments.length > 0 && (
+            <div className="mt-3 space-y-1">
+              <div className="flex items-center text-xs font-semibold uppercase text-slate-400">
+                <Paperclip className="mr-1 h-3 w-3" /> Attachments
+              </div>
+              <div className="flex flex-col gap-1">
+                {task.attachments.map((attachment) => {
+                  const href = getTaskAttachmentPublicUrl(attachment.storage_path)
+                  return (
+                    <a
+                      key={attachment.id}
+                      href={href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-blue-600 hover:underline truncate"
+                    >
+                      {attachment.file_name}
+                    </a>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+          {reports.length > 0 && (
+            <div className="mt-3 space-y-2">
+              <div className="text-xs font-semibold uppercase text-slate-400">Reports</div>
+              <div className="space-y-2">
+                {reports.map((report) => (
+                  <div key={report.id} className="rounded-md bg-slate-100/80 border border-slate-200 px-3 py-2 text-xs text-slate-700">
+                    <div className="flex items-center justify-between text-[11px] text-slate-500">
+                      <span>By {report.submitted_by.slice(0, 8)}…</span>
+                      <span>{new Date(report.created_at).toLocaleString()}</span>
+                    </div>
+                    <div className="mt-1 whitespace-pre-wrap">
+                      {report.report_text}
+                    </div>
+                    {report.attachments && report.attachments.length > 0 && (
+                      <div className="mt-2 space-y-1">
+                        <div className="flex items-center text-[11px] font-semibold uppercase text-slate-400">
+                          <Paperclip className="mr-1 h-3 w-3" /> Files
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          {report.attachments.map((attachment) => {
+                            const href = getTaskAttachmentPublicUrl(attachment.storage_path)
+                            return (
+                              <a
+                                key={attachment.id}
+                                href={href}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-[11px] text-blue-600 hover:underline truncate"
+                              >
+                                {attachment.file_name}
+                              </a>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
           )}
           <div className="mt-2 flex flex-wrap items-center gap-2">
             {task.assignments.map((a) => (
@@ -181,6 +344,65 @@ function TaskItem({ task, canManage, onUpdated }: { task: TaskWithAssignments; c
                   </TooltipTrigger>
                   <TooltipContent>Mark your assignment Completed</TooltipContent>
                 </Tooltip>
+                <Dialog open={reportOpen} onOpenChange={(open) => { setReportOpen(open); if (!open) setReportError(null); }}>
+                  <DialogTrigger asChild>
+                    <Button size="sm" variant="outline" className="gap-1"><Paperclip size={16}/> Submit report</Button>
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>Submit Task Report</DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-3">
+                      <textarea
+                        value={reportText}
+                        onChange={(e) => setReportText(e.target.value)}
+                        rows={5}
+                        placeholder="Share progress, blockers, or final notes for this task."
+                        onKeyDown={(e) => { e.stopPropagation(); (e.nativeEvent as any)?.stopImmediatePropagation?.(); }}
+                        className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-primary/50"
+                      />
+                      <div className="space-y-2">
+                        <input
+                          type="file"
+                          multiple
+                          onChange={(e) => setReportFiles(Array.from(e.target.files || []))}
+                          className="block w-full text-sm text-slate-600 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200"
+                        />
+                        {(reportFiles.length > 0 || reportUploads.length > 0) && (
+                          <div className="max-h-24 overflow-auto rounded-md border border-slate-200 bg-slate-50 p-2 text-xs text-slate-700">
+                            <ul className="space-y-1">
+                              {reportUploads.map((upload, index) => (
+                                <li key={`uploaded-${index}`} className="flex items-center justify-between">
+                                  <span className="truncate mr-2">{upload.file_name}</span>
+                                  <span className="text-slate-400">uploaded</span>
+                                </li>
+                              ))}
+                              {reportFiles.map((file, index) => (
+                                <li key={`pending-${index}`} className="flex items-center justify-between">
+                                  <span className="truncate mr-2">{file.name}</span>
+                                  <button
+                                    type="button"
+                                    className="text-red-600"
+                                    onClick={() => setReportFiles((prev) => prev.filter((_, idx) => idx !== index))}
+                                  >
+                                    remove
+                                  </button>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </div>
+                      {reportError && <p className="text-xs text-red-600">{reportError}</p>}
+                      <div className="flex justify-end gap-2">
+                        <Button variant="outline" onClick={() => setReportOpen(false)}>Cancel</Button>
+                        <Button onClick={onSubmitReport} disabled={reportSubmitting}>
+                          {reportSubmitting ? 'Submitting…' : 'Submit report'}
+                        </Button>
+                      </div>
+                    </div>
+                  </DialogContent>
+                </Dialog>
               </TooltipProvider>
             )}
             {canManage && (
@@ -225,6 +447,8 @@ function CreateTaskDialog({ orgId, rooms, roomId, onCreated }: { orgId: string; 
   const [submitting, setSubmitting] = useState(false);
   const [members, setMembers] = useState<Array<{ id: string; name: string }>>([]);
   const [loadingMembers, setLoadingMembers] = useState(false);
+  const [files, setFiles] = useState<File[]>([]);
+  const [uploaded, setUploaded] = useState<UploadedAttachment[]>([]);
 
   useEffect(() => {
     const load = async () => {
@@ -249,6 +473,12 @@ function CreateTaskDialog({ orgId, rooms, roomId, onCreated }: { orgId: string; 
     if (!user || !orgId || !title.trim()) return;
     setSubmitting(true);
     try {
+      // upload attachments first (optional)
+      let attachments: UploadedAttachment[] = uploaded;
+      if (files.length > 0) {
+        attachments = await uploadTaskAttachments(orgId, files);
+        setUploaded(attachments);
+      }
       await createTask({
         org_id: orgId,
         room_id: roomId ? roomId : (room || null),
@@ -257,9 +487,10 @@ function CreateTaskDialog({ orgId, rooms, roomId, onCreated }: { orgId: string; 
         priority,
         due_date: due || null,
         assigned_to: assignees,
+        attachments,
       });
       onCreated();
-      setTitle(""); setDescription(""); setPriority('medium'); setDue(""); setAssignees([]);
+      setTitle(""); setDescription(""); setPriority('medium'); setDue(""); setAssignees([]); setFiles([]); setUploaded([]);
     } finally {
       setSubmitting(false);
     }
@@ -281,6 +512,33 @@ function CreateTaskDialog({ orgId, rooms, roomId, onCreated }: { orgId: string; 
             <option value="urgent">Urgent</option>
           </select>
           <Input type="date" value={due} onChange={(e) => setDue(e.target.value)} />
+        </div>
+        <div className="space-y-2">
+          <div className="text-sm mb-1">Attachments</div>
+          <input
+            type="file"
+            multiple
+            onChange={(e) => setFiles(Array.from(e.target.files || []))}
+            className="block w-full text-sm text-slate-600 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200"
+          />
+          {(files.length > 0 || uploaded.length > 0) && (
+            <div className="max-h-28 overflow-auto border rounded-md p-2 text-xs text-slate-700 bg-slate-50">
+              <ul className="space-y-1">
+                {uploaded.map((u, i) => (
+                  <li key={`u-${i}`} className="flex items-center justify-between">
+                    <span className="truncate mr-2">{u.file_name}</span>
+                    <span className="text-slate-400">uploaded</span>
+                  </li>
+                ))}
+                {files.map((f, i) => (
+                  <li key={`f-${i}`} className="flex items-center justify-between">
+                    <span className="truncate mr-2">{f.name}</span>
+                    <button type="button" className="text-red-600" onClick={() => setFiles((prev) => prev.filter((_, idx) => idx !== i))}>remove</button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
         {!roomId && rooms && rooms.length > 0 && (
           <div>

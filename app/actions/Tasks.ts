@@ -36,10 +36,80 @@ export interface TaskComment {
   created_at: string;
 }
 
+export interface TaskAttachment {
+  id: string;
+  task_id: string;
+  file_name: string;
+  storage_path: string;
+  mime_type: string | null;
+  size: number | null;
+  created_at: string;
+}
+
+export interface TaskReportAttachment {
+  id: string;
+  report_id: string;
+  file_name: string;
+  storage_path: string;
+  mime_type: string | null;
+  size: number | null;
+  created_at: string;
+}
+
+export interface TaskReport {
+  id: string;
+  task_id: string;
+  submitted_by: string;
+  report_text: string;
+  created_at: string;
+  attachments: TaskReportAttachment[];
+}
+
 export interface TaskWithAssignments extends Task {
   assignments: TaskAssignment[];
   comments: TaskComment[];
+  attachments: TaskAttachment[];
+  reports: TaskReport[];
   assigned_to_names?: string[];
+}
+
+function dedupeReports(rawReports: any[] = []): TaskReport[] {
+  const dedup = new Map<string, TaskReport>();
+  rawReports.forEach((report) => {
+    if (!report) return;
+    const key = [
+      report.id ?? '',
+      report.task_id ?? '',
+      report.submitted_by ?? '',
+      (report.report_text ?? '').trim(),
+      report.created_at ?? '',
+    ].join('|');
+    const normalized: TaskReport = {
+      ...report,
+      attachments: (report.attachments ?? []).map((attachment: any) => ({
+        ...attachment,
+      })),
+    };
+    const existing = dedup.get(key);
+    if (!existing) {
+      dedup.set(key, normalized);
+      return;
+    }
+    const existingAttachments = existing.attachments ?? [];
+    const newAttachments = normalized.attachments ?? [];
+    if (newAttachments.length > existingAttachments.length) {
+      dedup.set(key, normalized);
+    }
+  });
+  return Array.from(dedup.values());
+}
+
+function normalizeTask(task: any): TaskWithAssignments {
+  return {
+    ...task,
+    attachments: task?.attachments ?? [],
+    reports: dedupeReports(task?.reports ?? []),
+  };
 }
 
 export interface CreateTaskData {
@@ -50,6 +120,23 @@ export interface CreateTaskData {
   priority?: 'low' | 'medium' | 'high' | 'urgent';
   due_date?: string | null;
   assigned_to: string[];
+  attachments?: Array<{
+    file_name: string;
+    storage_path: string;
+    mime_type?: string;
+    size?: number;
+  }>;
+}
+
+export interface SubmitTaskReportPayload {
+  task_id: string;
+  report_text: string;
+  attachments?: Array<{
+    file_name: string;
+    storage_path: string;
+    mime_type?: string;
+    size?: number;
+  }>;
 }
 
 export interface UpdateTaskData {
@@ -69,13 +156,15 @@ export const getTasks = async (org_id: string): Promise<TaskWithAssignments[]> =
     .select(`
       *,
       assignments:task_assignments(*),
-      comments:task_comments(*)
+      comments:task_comments(*),
+      attachments:task_attachments(*),
+      reports:task_reports(*, attachments:task_report_attachments(*))
     `)
     .eq('org_id', org_id)
     .order('created_at', { ascending: false });
 
   if (tasksError) throw tasksError;
-  return tasks || [];
+  return (tasks || []).map((task: any) => normalizeTask(task));
 };
 
 // Get tasks assigned to a specific user
@@ -87,14 +176,16 @@ export const getUserTasks = async (user_id: string, org_id: string): Promise<Tas
     .select(`
       *,
       assignments:task_assignments!inner(*),
-      comments:task_comments(*)
+      comments:task_comments(*),
+      attachments:task_attachments(*),
+      reports:task_reports(*, attachments:task_report_attachments(*))
     `)
     .eq('org_id', org_id)
     .eq('task_assignments.assigned_to', user_id)
     .order('created_at', { ascending: false });
 
   if (tasksError) throw tasksError;
-  return tasks || [];
+  return (tasks || []).map((task: any) => normalizeTask(task));
 };
 
 // Get tasks for a specific room
@@ -106,13 +197,15 @@ export const getRoomTasks = async (room_id: string): Promise<TaskWithAssignments
     .select(`
       *,
       assignments:task_assignments(*),
-      comments:task_comments(*)
+      comments:task_comments(*),
+      attachments:task_attachments(*),
+      reports:task_reports(*, attachments:task_report_attachments(*))
     `)
     .eq('room_id', room_id)
     .order('created_at', { ascending: false });
 
   if (tasksError) throw tasksError;
-  return tasks || [];
+  return (tasks || []).map((task: any) => normalizeTask(task));
 };
 
 // Get tasks assigned to current user in a room
@@ -124,7 +217,9 @@ export const getUserRoomTasks = async (room_id: string, user_id: string): Promis
     .select(`
       *,
       assignments:task_assignments(*),
-      comments:task_comments(*)
+      comments:task_comments(*),
+      attachments:task_attachments(*),
+      reports:task_reports(*, attachments:task_report_attachments(*))
     `)
     .eq('room_id', room_id)
     .order('created_at', { ascending: false });
@@ -135,7 +230,7 @@ export const getUserRoomTasks = async (room_id: string, user_id: string): Promis
     task.assignments.some((assignment: TaskAssignment) => assignment.assigned_to === user_id)
   ) || [];
 
-  return userTasks;
+  return userTasks.map((task: any) => normalizeTask(task));
 };
 
 // Create a new task
@@ -175,7 +270,67 @@ export const createTask = async (taskData: CreateTaskData): Promise<Task> => {
     if (assignmentError) throw assignmentError;
   }
 
+  if (taskData.attachments && taskData.attachments.length > 0) {
+    const rows = taskData.attachments.map((a) => ({
+      task_id: (task as any).id,
+      file_name: a.file_name,
+      storage_path: a.storage_path,
+      mime_type: a.mime_type ?? null,
+      size: a.size ?? null,
+    }))
+    const { error: attError } = await supabase
+      .from('task_attachments')
+      .insert(rows)
+    if (attError) throw attError
+  }
+
   return task as Task;
+};
+
+export const submitTaskReport = async (payload: SubmitTaskReportPayload): Promise<TaskReport> => {
+  const { userId } = await auth();
+  if (!userId) throw new Error('Unauthorized');
+
+  if (!payload.report_text?.trim()) {
+    throw new Error('Report text is required');
+  }
+
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from('task_reports')
+    .insert([{
+      task_id: payload.task_id,
+      submitted_by: userId,
+      report_text: payload.report_text.trim(),
+    }])
+    .select()
+    .single();
+
+  if (error) throw error;
+  let attachments: TaskReportAttachment[] = [];
+  if (payload.attachments && payload.attachments.length > 0) {
+    const rows = payload.attachments.map((attachment) => ({
+      report_id: data.id,
+      file_name: attachment.file_name,
+      storage_path: attachment.storage_path,
+      mime_type: attachment.mime_type ?? null,
+      size: attachment.size ?? null,
+    }));
+
+    const { data: insertedAttachments, error: attachmentsError } = await supabase
+      .from('task_report_attachments')
+      .insert(rows)
+      .select();
+
+    if (attachmentsError) throw attachmentsError;
+    attachments = insertedAttachments as TaskReportAttachment[];
+  }
+
+  return {
+    ...(data as TaskReport),
+    attachments,
+  };
 };
 
 // Update a task
@@ -338,13 +493,15 @@ export const getAllTasksWithAssignees = async (org_id: string): Promise<TaskWith
     .select(`
       *,
       assignments:task_assignments(*),
-      comments:task_comments(*)
+      comments:task_comments(*),
+      attachments:task_attachments(*),
+      reports:task_reports(*, attachments:task_report_attachments(*))
     `)
     .eq('org_id', org_id)
     .order('created_at', { ascending: false });
 
   if (tasksError) throw tasksError;
-  return tasks || [];
+  return (tasks || []).map((task: any) => normalizeTask(task));
 };
 
 // Get tasks based on user role - managers see all, employees see only assigned
