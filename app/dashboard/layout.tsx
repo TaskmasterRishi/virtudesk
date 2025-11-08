@@ -6,6 +6,7 @@ import { useUser } from "@clerk/nextjs";
 import { CharacterSelection } from "./_components/CharacterSelection";
 import TasksPanel from "./_components/TasksPanel";
 import TaskAssignmentNotification from "@/components/TaskAssignmentNotification";
+import { usePathname } from "next/navigation";
 
 export default function DashboardLayout({
   children,
@@ -13,6 +14,9 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }>) {
   const { user } = useUser();
+  const pathname = usePathname();
+  const isAnalyticsPage = pathname === '/dashboard/analytics';
+
   return (
     <SidebarProvider>
       <AppSidebar />
@@ -24,12 +28,12 @@ export default function DashboardLayout({
               Welcome, <span className="text-primary">{user?.fullName}</span>
             </h1>
           </div>
-          <CharacterSelection/>
+          {!isAnalyticsPage && <CharacterSelection/>}
         </div>
         <div className="w-full">
           {children}
         </div>
-        <TasksPanel />
+        {!isAnalyticsPage && <TasksPanel />}
         <TaskAssignmentNotification />
       </main>
     </SidebarProvider>
