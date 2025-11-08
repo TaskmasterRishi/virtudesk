@@ -15,7 +15,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { getRooms } from "@/app/actions/Room";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { CheckCircle2, PlayCircle, Trash2, UserPlus2, Clock3, AlertTriangle, CheckCheck, Tag, LayoutList, Paperclip } from "lucide-react";
+import { CheckCircle2, PlayCircle, Trash2, UserPlus2, Clock3, AlertTriangle, CheckCheck, Tag, LayoutList, Paperclip, ChevronLeft, ChevronRight } from "lucide-react";
 
 type Priority = 'low' | 'medium' | 'high' | 'urgent';
 type Status = 'pending' | 'in_progress' | 'completed' | 'cancelled';
@@ -30,6 +30,7 @@ export default function TasksPanel() {
   const [createOpen, setCreateOpen] = useState(false);
   const [rooms, setRooms] = useState<{ id: string; title: string }[]>([]);
   const [members, setMembers] = useState<Array<{ id: string; name: string; role: string; }>>([]);
+  const [isOpen, setIsOpen] = useState(false);
 
   const isAdmin = useMemo(() => orgRole === 'org:admin' || orgRole === 'admin', [orgRole]);
 
@@ -115,34 +116,158 @@ export default function TasksPanel() {
   }, [organization]);
 
   return (
-    <div className="fixed right-4 top-20 bottom-4 z-40 w-[360px] max-w-[80vw] pointer-events-auto">
-      <Card className="h-full flex flex-col overflow-hidden">
-        <div className="p-4 border-b flex items-center justify-between">
-          <div className="font-semibold">Tasks {organization ? `· ${organization.name}` : ''}</div>
-          {isAdmin && (
-            <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-              <DialogTrigger asChild>
-                <Button size="sm" className="gap-1"><LayoutList size={16}/> New</Button>
-              </DialogTrigger>
-              <CreateTaskDialog orgId={orgId || ''} rooms={rooms} members={members} onCreated={() => { setCreateOpen(false); fetchTasks(); }} />
-            </Dialog>
-          )}
-        </div>
-        <div className="px-4 py-2 border-b bg-muted/30">
-          <div className="text-sm text-muted-foreground">{loading ? 'Loading…' : `${tasks.length} tasks`}</div>
-        </div>
-        <ScrollArea className="flex-1 min-h-0 overflow-x-hidden">
-          <div className="p-3 space-y-3 max-w-full">
-            {tasks.map((t) => (
-              <TaskItem key={t.id} task={t} canManage={!!isAdmin} onUpdated={fetchTasks} rooms={rooms} members={members} />
-            ))}
-            {!loading && tasks.length === 0 && (
-              <Card className="p-6 text-center text-sm text-muted-foreground">No tasks yet.</Card>
-            )}
+    <>
+      {/* Toggle Button - Always visible on the right edge, smooth triangle shape */}
+      <TooltipProvider>
+        <Tooltip delayDuration={200}>
+          <TooltipTrigger asChild>
+            <button
+              onClick={() => setIsOpen(!isOpen)}
+              className={cn(
+                "fixed z-50",
+                "w-12 h-20",
+                "transition-all duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)]",
+                "group cursor-pointer",
+                "hover:scale-105 active:scale-95",
+                "flex items-center justify-center",
+                isOpen 
+                  ? "right-[415px] top-1/2 -translate-y-1/2" 
+                  : "right-0 top-1/2 -translate-y-1/2"
+              )}
+              aria-label={isOpen ? "Hide tasks panel" : "Show tasks panel"}
+            >
+              <div
+                className={cn(
+                  "w-full h-full bg-white",
+                  "border border-slate-200/60 shadow-xl",
+                  "flex items-center justify-center",
+                  "transition-all duration-300",
+                  "group-hover:bg-white group-hover:shadow-2xl group-hover:border-slate-300/80",
+                  !isOpen && tasks.length > 0 && "ring-2 ring-primary/20"
+                )}
+                style={{
+                  clipPath: isOpen 
+                    ? 'polygon(0 0, 90% 8%, 100% 50%, 90% 92%, 0 100%, 10% 50%)'
+                    : 'polygon(10% 8%, 100% 0, 100% 100%, 10% 92%, 0 50%)',
+                }}
+              >
+                <div className="relative z-10 flex items-center justify-center">
+                  {isOpen ? (
+                    <ChevronRight 
+                      className="h-4 w-4 text-slate-700 transition-all duration-500 group-hover:translate-x-0.5 group-hover:text-slate-900 -ml-1" 
+                    />
+                  ) : (
+                    <ChevronLeft 
+                      className="h-4 w-4 text-slate-700 transition-all duration-500 group-hover:-translate-x-0.5 group-hover:text-slate-900 ml-1" 
+                    />
+                  )}
+                  {/* Task count badge when closed and has tasks */}
+                  {!isOpen && tasks.length > 0 && (
+                    <span 
+                      className="absolute -top-1 -right-2 bg-primary text-primary-foreground text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center shadow-lg animate-pulse z-20"
+                    >
+                      {tasks.length > 9 ? '9+' : tasks.length}
+                    </span>
+                  )}
+                </div>
+                {/* Subtle shine effect */}
+                <div 
+                  className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500"
+                  style={{
+                    clipPath: isOpen 
+                      ? 'polygon(0 0, 90% 8%, 100% 50%, 90% 92%, 0 100%, 10% 50%)'
+                      : 'polygon(10% 8%, 100% 0, 100% 100%, 10% 92%, 0 50%)',
+                  }}
+                />
+              </div>
+            </button>
+          </TooltipTrigger>
+          <TooltipContent 
+            side="left" 
+            className="bg-white border-slate-200/60 shadow-xl text-slate-700 font-medium px-3 py-2 rounded-lg z-[60]"
+          >
+            <p>{isOpen ? "Hide tasks" : "Show tasks"}</p>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+
+      {/* Tasks Panel */}
+      <div
+        className={cn(
+          "fixed top-20 bottom-4 z-40 w-[420px] max-w-[80vw] pointer-events-auto",
+          "transition-all duration-700 ease-[cubic-bezier(0.16,1,0.3,1)]",
+          "transform-gpu will-change-transform",
+          isOpen 
+            ? "right-2 translate-x-0 opacity-100 scale-100 rotate-0" 
+            : "right-0 translate-x-full opacity-0 scale-[0.96]"
+        )}
+      >
+        <Card className="h-full flex flex-col overflow-hidden border-slate-200/60 shadow-2xl shadow-slate-400/10 bg-white ring-1 ring-slate-200/50">
+          <div className="p-4 border-b border-slate-200/60 bg-gradient-to-r from-white via-slate-50/30 to-white flex items-center justify-between">
+            <div className="font-semibold text-slate-800 flex items-center gap-2.5">
+              <div className="relative">
+                <div className="w-2.5 h-2.5 rounded-full bg-primary/80 animate-pulse" />
+                <div className="absolute inset-0 w-2.5 h-2.5 rounded-full bg-primary/40 animate-ping" />
+              </div>
+              <span className="bg-gradient-to-r from-slate-800 to-slate-600 bg-clip-text text-transparent">
+                Tasks {organization ? `· ${organization.name}` : ''}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              {isAdmin && (
+                <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+                  <DialogTrigger asChild>
+                    <Button 
+                      size="sm" 
+                      className="gap-1 bg-white border-slate-200 text-slate-700 hover:bg-slate-50 hover:border-slate-300 shadow-sm hover:shadow transition-all duration-200"
+                    >
+                      <LayoutList size={16}/> New
+                    </Button>
+                  </DialogTrigger>
+                  <CreateTaskDialog orgId={orgId || ''} rooms={rooms} members={members} onCreated={() => { setCreateOpen(false); fetchTasks(); }} />
+                </Dialog>
+              )}
+            </div>
           </div>
-        </ScrollArea>
-      </Card>
-    </div>
+          <div className="px-4 py-3 border-b border-slate-200/60 bg-gradient-to-r from-slate-50/40 via-white/50 to-slate-50/40">
+            <div className="text-sm text-slate-600 font-medium flex items-center gap-2">
+              {loading ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-slate-300 border-t-primary rounded-full animate-spin" />
+                  <span>Loading…</span>
+                </>
+              ) : (
+                <>
+                  <span className="text-slate-500">{tasks.length}</span>
+                  <span className="text-slate-400">·</span>
+                  <span>{tasks.length === 1 ? 'task' : 'tasks'}</span>
+                </>
+              )}
+            </div>
+          </div>
+          <ScrollArea className="flex-1 min-h-0 overflow-x-hidden bg-gradient-to-b from-white via-white to-slate-50/20">
+            <div className="p-3 space-y-3 max-w-full">
+              {tasks.map((t, index) => (
+                <div
+                  key={t.id}
+                  className="opacity-0"
+                  style={{ 
+                    animation: `fadeInSlide 0.4s ease-out ${index * 50}ms forwards`
+                  }}
+                >
+                  <TaskItem task={t} canManage={!!isAdmin} onUpdated={fetchTasks} rooms={rooms} members={members} />
+                </div>
+              ))}
+              {!loading && tasks.length === 0 && (
+                <Card className="p-6 text-center text-sm text-slate-500 border-slate-200/60 bg-slate-50/50">
+                  No tasks yet.
+                </Card>
+              )}
+            </div>
+          </ScrollArea>
+        </Card>
+      </div>
+    </>
   );
 }
 

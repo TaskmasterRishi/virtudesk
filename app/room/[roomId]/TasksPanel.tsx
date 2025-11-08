@@ -104,7 +104,7 @@ export default function RoomTasksPanel({ roomId }: { roomId: string; }) {
         <div className="absolute inset-0 bg-white/10 backdrop-blur-md rounded-2xl shadow-xl border border-white/20" />
         <div className={`relative overflow-hidden h-[50vh] opacity-100`}>
           <div className="flex flex-col p-3">
-            <div className="mt-0 mb-2 grid grid-cols-2 gap-2">
+            <div className={`mt-0 mb-2 grid gap-2 ${isAdmin ? "grid-cols-2" : "grid-cols-1"}`}>
               <button className={`flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-md border text-xs font-medium transition bg-slate-100 border-slate-300 text-slate-800`}>
                 <Users2 className="w-4 h-4" />
                 <span className="text-sm font-medium">Tasks</span>
