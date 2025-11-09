@@ -1,5 +1,6 @@
 import { getChatInputFocus } from '../chatState';
 import { getWhiteboardOpen } from '../whiteboardState'; // Import getWhiteboardOpen
+import { getCreateTaskPanelOpen } from '../createTaskPanelState';
 
 export class PlayerMovement {
   private animationKeys: {
@@ -27,7 +28,7 @@ export class PlayerMovement {
     if (!this.player || !this.cursors) return;
 
     // Disable movement if chat is focused OR whiteboard is open
-    if (getChatInputFocus() || getWhiteboardOpen()) {
+    if (getChatInputFocus() || getWhiteboardOpen() || getCreateTaskPanelOpen()) {
       this.player.setVelocity(0, 0);
       if (this.player.anims?.animationManager?.exists(this.animationKeys.idle)) {
         if (this.player.anims?.currentAnim?.key !== this.animationKeys.idle) {

@@ -76,7 +76,7 @@ const onCall = useCallback(() => {}, [])
 		{isOpen ? <ChevronRight className="w-5 h-5" /> : <ChevronLeft className="w-5 h-5" />}
 		</button>
 		<div
-			className={`absolute top-1/2 right-4 -translate-y-1/2 z-50 transition-transform duration-300
+			className={`absolute top-1/2 right-4 -translate-y-1/2 z-60 transition-transform duration-300
 			${isOpen ? 'translate-x-0' : 'translate-x-[calc(100%+1rem)] pointer-events-none'}`}
 		>
 			<div className="relative w-[360px] max-w-[80vw]">

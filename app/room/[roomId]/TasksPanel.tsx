@@ -14,6 +14,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { CheckCircle2, PlayCircle, CheckCheck, Clock3, Tag, Users2, Paperclip, ChevronLeft, ChevronRight } from "lucide-react";
 import { getAllPlayers } from "@/game/realtime/PlayerRealtime";
+import { setCreateTaskPanelOpen } from "@/game/createTaskPanelState";
 
 type Priority = 'low' | 'medium' | 'high' | 'urgent';
 
@@ -23,6 +24,11 @@ export default function RoomTasksPanel({ roomId }: { roomId: string; }) {
   const [tasks, setTasks] = useState<TaskWithAssignments[]>([]);
   const [loading, setLoading] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
+
+  useEffect(() => {
+    setCreateTaskPanelOpen(createOpen);
+    return () => setCreateTaskPanelOpen(false); 
+  }, [createOpen]);
   const [isOpen, setIsOpen] = useState(true);
   const { organization } = useOrganization();
   const [members, setMembers] = useState<Array<{ id: string; name: string; role: string }>>([]);
@@ -115,11 +121,16 @@ export default function RoomTasksPanel({ roomId }: { roomId: string; }) {
       {isOpen ? <ChevronLeft className="w-5 h-5" /> : <ChevronRight className="w-5 h-5" />}
     </button>
     <div
-      className={`absolute left-4 top-1/2 -translate-y-1/2 z-50
+      className={`absolute left-4 top-1/2 -translate-y-1/2 z-60
         transition-transform duration-300
         ${isOpen ? 'translate-x-0' : '-translate-x-[calc(100%+1rem)] pointer-events-none'}`}
     >
-      <div className="relative w-[360px] max-w-[80vw]">
+      <div
+        className="relative w-[360px] max-w-[80vw]"
+        onKeyDownCapture={(e) => { e.stopPropagation(); }}
+        onKeyUpCapture={(e) => { e.stopPropagation(); }}
+        onKeyPressCapture={(e) => { e.stopPropagation(); }}
+      >
         <div className="absolute inset-0 bg-white/10 backdrop-blur-md rounded-2xl shadow-xl border border-white/20" />
         <div className={`relative overflow-hidden h-[50vh] opacity-100`}>
           <div className="flex flex-col p-3">
@@ -127,6 +138,13 @@ export default function RoomTasksPanel({ roomId }: { roomId: string; }) {
               <button className={`flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-md border text-xs font-medium transition bg-slate-100 border-slate-300 text-slate-800`}>
                 <Users2 className="w-4 h-4" />
                 <span className="text-sm font-medium">Tasks</span>
+                {tasks.length > 0 && (
+                    <span 
+                      className=" bg-primary text-primary-foreground text-xs font-bold rounded-full w-4 h-4 flex items-center justify-center shadow-lg z-20"
+                    >
+                      {tasks.length > 9 ? '9+' : tasks.length}
+                    </span>
+                  )}
               </button>
               {isAdmin && (
                 <Dialog open={createOpen} onOpenChange={setCreateOpen}>
@@ -138,7 +156,7 @@ export default function RoomTasksPanel({ roomId }: { roomId: string; }) {
               )}
             </div>
             <div className="bg-white border border-slate-200 rounded-md overflow-hidden flex flex-col h-[calc(50vh-72px)] p-2">
-              <div className="px-1 pb-2 text-xs text-muted-foreground">{loading ? 'Loading…' : `${tasks.length} tasks`}</div>
+              {/* <div className="px-1 pb-2 text-xs text-muted-foreground">{loading ? 'Loading…' : `${tasks.length} tasks`}</div> */}
               <div className="flex-1 overflow-y-auto overflow-x-hidden divide-y divide-slate-100 px-1">
                 <div className="space-y-2 py-1 max-w-full">
                   {tasks.map((t) => (
