@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { CheckCircle2, PlayCircle, CheckCheck, Clock3, Tag, Users2, Paperclip } from "lucide-react";
+import { CheckCircle2, PlayCircle, CheckCheck, Clock3, Tag, Users2, Paperclip, ChevronLeft, ChevronRight } from "lucide-react";
 import { getAllPlayers } from "@/game/realtime/PlayerRealtime";
 
 type Priority = 'low' | 'medium' | 'high' | 'urgent';
@@ -23,6 +23,7 @@ export default function RoomTasksPanel({ roomId }: { roomId: string; }) {
   const [tasks, setTasks] = useState<TaskWithAssignments[]>([]);
   const [loading, setLoading] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
+  const [isOpen, setIsOpen] = useState(true);
   const { organization } = useOrganization();
   const [members, setMembers] = useState<Array<{ id: string; name: string; role: string }>>([]);
   const isAdmin = useMemo(() => orgRole === 'org:admin' || orgRole === 'admin', [orgRole]);
@@ -99,7 +100,25 @@ export default function RoomTasksPanel({ roomId }: { roomId: string; }) {
   }, [roomId, fetchTasks, user?.id]);
 
   return (
-    <div className="absolute left-4 top-1/2 -translate-y-1/2 z-50 pointer-events-auto">
+    <>
+    <button
+      onClick={() => setIsOpen(o => !o)}
+      className={`fixed top-1/2 -translate-y-1/2 z-[60]
+        w-8 h-16 flex items-center justify-center
+        rounded-r-xl rounded-l-none
+        bg-white/10 backdrop-blur-md shadow-xl
+        hover:bg-white/20
+        border border-white/20 border-l-0
+        transition-all duration-400 ease-[cubic-bezier(0.34,1.56,0.64,1)]
+        ${isOpen ? 'left-[376px]' : 'left-0'}`}
+    >
+      {isOpen ? <ChevronLeft className="w-5 h-5" /> : <ChevronRight className="w-5 h-5" />}
+    </button>
+    <div
+      className={`absolute left-4 top-1/2 -translate-y-1/2 z-50
+        transition-transform duration-300
+        ${isOpen ? 'translate-x-0' : '-translate-x-[calc(100%+1rem)] pointer-events-none'}`}
+    >
       <div className="relative w-[360px] max-w-[80vw]">
         <div className="absolute inset-0 bg-white/10 backdrop-blur-md rounded-2xl shadow-xl border border-white/20" />
         <div className={`relative overflow-hidden h-[50vh] opacity-100`}>
@@ -134,7 +153,7 @@ export default function RoomTasksPanel({ roomId }: { roomId: string; }) {
           </div>
         </div>
       </div>
-    </div>
+    </div>  </>
   );
 }
 

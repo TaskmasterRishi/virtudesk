@@ -5,7 +5,7 @@ import { useUser } from '@clerk/nextjs'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { getAllPlayers, getSelfId } from '@/game/realtime/PlayerRealtime'
-import { Users2, MessageSquareText, Video } from "lucide-react"
+import { Users2, MessageSquareText, Video, ChevronRight, ChevronLeft } from "lucide-react"
 import TextChat from './TextChat'
 import { getWhiteboardOpen } from '@/game/whiteboardState'
 import LeaveRoomButton from './LeaveRoomButton'
@@ -16,6 +16,7 @@ export default function PlayersPanel() {
 	const [players, setPlayers] = useState<PlayerInfo[]>([])
 	const [activeTab, setActiveTab] = useState<'participants' | 'chat'>('participants')
 	const [isWhiteboardOpen, setIsWhiteboardOpen] = useState(false)
+	const [isOpen, setIsOpen] = useState(true)
 	const selfId = getSelfId()
 	const { user } = useUser()
 
@@ -61,7 +62,23 @@ const onCall = useCallback(() => {}, [])
 
 	return (
 		<>
-		<div className="absolute top-1/2 right-4 -translate-y-1/2 z-50 pointer-events-auto">
+		<button
+		onClick={() => setIsOpen(o => !o)}
+		className={`fixed right-0 top-1/2 -translate-y-1/2 z-[60]
+		w-8 h-16 flex items-center justify-center
+		rounded-l-xl rounded-r-none
+		bg-white/10 backdrop-blur-md shadow-xl
+		hover:bg-white/20
+		border border-white/20 border-r-0
+		transition-all duration-400 ease-[cubic-bezier(0.34,1.56,0.64,1)]
+		${isOpen ? 'right-[376px]' : 'right-0'}`}
+		>
+		{isOpen ? <ChevronRight className="w-5 h-5" /> : <ChevronLeft className="w-5 h-5" />}
+		</button>
+		<div
+			className={`absolute top-1/2 right-4 -translate-y-1/2 z-50 transition-transform duration-300
+			${isOpen ? 'translate-x-0' : 'translate-x-[calc(100%+1rem)] pointer-events-none'}`}
+		>
 			<div className="relative w-[360px] max-w-[80vw]">
 				{/* Glass crystal background container */}
 				<div className="absolute inset-0 bg-white/10 backdrop-blur-md rounded-2xl shadow-xl border border-white/20" />
