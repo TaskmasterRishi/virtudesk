@@ -125,13 +125,13 @@ export default function TasksPanel() {
               onClick={() => setIsOpen(!isOpen)}
               className={cn(
                 "fixed z-50",
-                "w-12 h-20",
+                "w-8 h-20",
                 "transition-all duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)]",
                 "group cursor-pointer",
                 "hover:scale-105 active:scale-95",
                 "flex items-center justify-center",
                 isOpen 
-                  ? "right-[415px] top-1/2 -translate-y-1/2" 
+                  ? "right-[417px] top-1/2 -translate-y-1/2" 
                   : "right-0 top-1/2 -translate-y-1/2"
               )}
               aria-label={isOpen ? "Hide tasks panel" : "Show tasks panel"}
@@ -139,26 +139,26 @@ export default function TasksPanel() {
               <div
                 className={cn(
                   "w-full h-full bg-white",
-                  "border border-slate-200/60 shadow-xl",
+                  "border border-slate-200/60 shadow-xl rounded-full",
                   "flex items-center justify-center",
                   "transition-all duration-300",
                   "group-hover:bg-white group-hover:shadow-2xl group-hover:border-slate-300/80",
                   !isOpen && tasks.length > 0 && "ring-2 ring-primary/20"
                 )}
-                style={{
-                  clipPath: isOpen 
-                    ? 'polygon(0 0, 90% 8%, 100% 50%, 90% 92%, 0 100%, 10% 50%)'
-                    : 'polygon(10% 8%, 100% 0, 100% 100%, 10% 92%, 0 50%)',
-                }}
+                // style={{
+                //   clipPath: isOpen
+                //     ? "polygon(0% 0%, 100% 50%, 0% 100%)"
+                //     : "polygon(100% 0%, 0% 50%, 100% 100%)",
+                // }}
               >
                 <div className="relative z-10 flex items-center justify-center">
                   {isOpen ? (
                     <ChevronRight 
-                      className="h-4 w-4 text-slate-700 transition-all duration-500 group-hover:translate-x-0.5 group-hover:text-slate-900 -ml-1" 
+                      className="h-6 w-6 text-slate-700 transition-all duration-500 group-hover:translate-x-0.5 group-hover:text-slate-900 -ml-1" 
                     />
                   ) : (
                     <ChevronLeft 
-                      className="h-4 w-4 text-slate-700 transition-all duration-500 group-hover:-translate-x-0.5 group-hover:text-slate-900 ml-1" 
+                      className="h-6 w-6 text-slate-700 transition-all duration-500 group-hover:-translate-x-0.5 group-hover:text-slate-900 ml-1" 
                     />
                   )}
                   {/* Task count badge when closed and has tasks */}
@@ -174,9 +174,9 @@ export default function TasksPanel() {
                 <div 
                   className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500"
                   style={{
-                    clipPath: isOpen 
-                      ? 'polygon(0 0, 90% 8%, 100% 50%, 90% 92%, 0 100%, 10% 50%)'
-                      : 'polygon(10% 8%, 100% 0, 100% 100%, 10% 92%, 0 50%)',
+                    clipPath: isOpen
+                      ? "polygon(0% 0%, 100% 50%, 0% 100%)"
+                      : "polygon(100% 0%, 0% 50%, 100% 100%)",
                   }}
                 />
               </div>
@@ -202,16 +202,27 @@ export default function TasksPanel() {
             : "right-0 translate-x-full opacity-0 scale-[0.96]"
         )}
       >
-        <Card className="h-full flex flex-col overflow-hidden border-slate-200/60 shadow-2xl shadow-slate-400/10 bg-white ring-1 ring-slate-200/50">
-          <div className="p-4 border-b border-slate-200/60 bg-gradient-to-r from-white via-slate-50/30 to-white flex items-center justify-between">
+        <Card className="h-full flex flex-col gap-2 overflow-hidden border-slate-200/60 shadow-2xl shadow-slate-400/10 bg-white ring-1 ring-slate-200/50">
+          <div className="p-4 pt-0 border-b border-slate-200/60 bg-gradient-to-r from-white via-slate-50/30 to-white flex items-center justify-between">
             <div className="font-semibold text-slate-800 flex items-center gap-2.5">
               <div className="relative">
                 <div className="w-2.5 h-2.5 rounded-full bg-primary/80 animate-pulse" />
                 <div className="absolute inset-0 w-2.5 h-2.5 rounded-full bg-primary/40 animate-ping" />
               </div>
-              <span className="bg-gradient-to-r from-slate-800 to-slate-600 bg-clip-text text-transparent">
-                Tasks {organization ? `· ${organization.name}` : ''}
-              </span>
+              <div className="flex items-center gap-2 bg-gradient-to-r from-slate-800 to-slate-600 bg-clip-text text-transparent">
+
+                <span className="bg-gradient-to-r from-slate-800 to-slate-600 bg-clip-text text-transparent">
+                  Tasks {user ? `· ${user.fullName}` : ''}
+                </span>
+                {tasks.length > 0 && (
+                    <span 
+                      className=" bg-primary text-primary-foreground text-xs font-bold rounded-full w-4 h-4 flex items-center justify-center shadow-lg z-20"
+                    >
+                      {tasks.length > 9 ? '9+' : tasks.length}
+                    </span>
+                  )}
+              </div>
+
             </div>
             <div className="flex items-center gap-2">
               {isAdmin && (
@@ -229,7 +240,7 @@ export default function TasksPanel() {
               )}
             </div>
           </div>
-          <div className="px-4 py-3 border-b border-slate-200/60 bg-gradient-to-r from-slate-50/40 via-white/50 to-slate-50/40">
+          {/* <div className="px-4 py-3 border-b border-slate-200/60 bg-gradient-to-r from-slate-50/40 via-white/50 to-slate-50/40">
             <div className="text-sm text-slate-600 font-medium flex items-center gap-2">
               {loading ? (
                 <>
@@ -244,7 +255,7 @@ export default function TasksPanel() {
                 </>
               )}
             </div>
-          </div>
+          </div> */}
           <ScrollArea className="flex-1 min-h-0 overflow-x-hidden bg-gradient-to-b from-white via-white to-slate-50/20">
             <div className="p-3 space-y-3 max-w-full">
               {tasks.map((t, index) => (
