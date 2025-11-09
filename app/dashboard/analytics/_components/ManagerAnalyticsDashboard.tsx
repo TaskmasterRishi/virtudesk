@@ -130,7 +130,7 @@ export default function ManagerAnalyticsDashboard({ initialData, orgId }: Manage
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-50">
+    <div className="min-h-screen">
       <div className="container mx-auto px-6 py-8 max-w-7xl">
         {/* Header Section */}
         <div className="mb-8">

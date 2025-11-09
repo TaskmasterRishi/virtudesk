@@ -372,7 +372,7 @@ function RoomTaskItem({ task, onUpdated, isAdmin, members }: { task: TaskWithAss
                 {userAssignment?.status === 'in_progress' && (
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <Button size="sm" className="bg-green-600 hover:bg-green-700 gap-1" disabled={updating} onClick={() => setStatus('completed')}><CheckCircle2 size={16}/> Completed</Button>
+                      <Button size="sm" className="bg-green-600 hover:bg-green-700 gap-1" disabled={updating} onClick={() => setStatus('completed')}><CheckCircle2 size={16}/> Complete</Button>
                     </TooltipTrigger>
                     <TooltipContent>Mark your assignment Completed</TooltipContent>
                   </Tooltip>

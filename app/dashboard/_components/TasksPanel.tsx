@@ -108,7 +108,24 @@ export default function TasksPanel() {
         const list = await organization.getMemberships();
         const arr = (list?.data || [])
           .filter((m: any) => m.publicUserData?.userId)
-          .map((m: any) => ({ id: m.publicUserData.userId as string, name: (m.publicUserData.identifier as string) || 'Member', role: m.role }));
+          .map((m: any) => {
+            const first = m.publicUserData?.firstName?.trim();
+            const last = m.publicUserData?.lastName?.trim();
+            const hasName = first || last;
+            const username = m.publicUserData?.username;
+            const identifier = m.publicUserData?.identifier as string | undefined;
+            const emailPrefix = identifier && identifier.includes("@")
+              ? identifier.split("@")[0]
+              : identifier;
+          
+            return {
+              id: m.publicUserData.userId as string,
+              name: hasName
+                ? [first, last].filter(Boolean).join(" ")
+                : (username || emailPrefix || "Member"),
+              role: m.role,
+            };
+          })
         setMembers(arr);
       } catch {}
     };
@@ -442,7 +459,7 @@ function TaskItem({ task, canManage, onUpdated, rooms, members }: { task: TaskWi
                 {reports.map((report) => (
                   <div key={report.id} className="rounded-md bg-slate-100/80 border border-slate-200 px-3 py-2 text-xs text-slate-700">
                     <div className="flex items-center justify-between text-[11px] text-slate-500">
-                      <span>By {report.submitted_by.slice(0, 8)}…</span>
+                      <span>By {getMemberName(report.submitted_by)}</span>
                       <span>{new Date(report.created_at).toLocaleString()}</span>
                     </div>
                     <div className="mt-1 whitespace-pre-wrap">
@@ -478,7 +495,7 @@ function TaskItem({ task, canManage, onUpdated, rooms, members }: { task: TaskWi
           )}
           <div className="mt-2 flex flex-wrap items-center gap-2">
             {task.assignments.map((a) => (
-              <Badge key={a.id} variant="secondary" className="text-xs"><UserPlus2 className="mr-1" size={12}/> {getMemberName(a.assigned_to)}…</Badge>
+              <Badge key={a.id} variant="secondary" className="text-xs"><UserPlus2 className="mr-1" size={12}/> {getMemberName(a.assigned_to)}</Badge>
             ))}
             {task.due_date && <Badge variant="outline" className="text-xs">Due {new Date(task.due_date).toLocaleDateString()}</Badge>}
             {task.room_id && <Badge variant="outline" className="text-xs">Room {roomName}</Badge>}
@@ -497,7 +514,7 @@ function TaskItem({ task, canManage, onUpdated, rooms, members }: { task: TaskWi
                 {userAssignment?.status === 'in_progress' && (
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <Button size="sm" className="bg-green-600 hover:bg-green-700 gap-1" disabled={updating} onClick={() => changeSelfAssignmentStatus('completed')}><CheckCircle2 size={16}/> Completed</Button>
+                      <Button size="sm" className="bg-green-600 hover:bg-green-700 gap-1" disabled={updating} onClick={() => changeSelfAssignmentStatus('completed')}><CheckCircle2 size={16}/> Complete</Button>
                     </TooltipTrigger>
                     <TooltipContent>Mark your assignment Completed</TooltipContent>
                   </Tooltip>
@@ -596,8 +613,6 @@ function CreateTaskDialog({ orgId, rooms, roomId, onCreated, members: allMembers
     if (!allMembers) return [];
     return allMembers.filter(m => m.role !== 'org:admin');
   }, [allMembers]);
-
-  console.log(members);
 
   const onSubmit = async () => {
     if (!user || !orgId || !title.trim()) return;
