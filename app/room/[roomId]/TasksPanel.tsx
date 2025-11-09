@@ -15,6 +15,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { CheckCircle2, PlayCircle, CheckCheck, Clock3, Tag, Users2, Paperclip, ChevronLeft, ChevronRight } from "lucide-react";
 import { getAllPlayers } from "@/game/realtime/PlayerRealtime";
 import { setCreateTaskPanelOpen } from "@/game/createTaskPanelState";
+import { onTaskPanelChange } from "@/utils/taskPanelState";
 
 type Priority = 'low' | 'medium' | 'high' | 'urgent';
 
@@ -72,6 +73,13 @@ export default function RoomTasksPanel({ roomId }: { roomId: string; }) {
     };
     void loadMembers();
   }, [organization]);
+
+  useEffect(() => {
+    const unsub = onTaskPanelChange((open) => {
+      setIsOpen(open); 
+    });
+    return () => unsub();
+  }, []);
 
   useEffect(() => {
     if (!roomId) return;
@@ -300,7 +308,7 @@ function RoomTaskItem({ task, onUpdated, isAdmin, members }: { task: TaskWithAss
                 {reports.map((report) => (
                   <div key={report.id} className="rounded-md bg-slate-100/80 border border-slate-200 px-2.5 py-2 text-[11px] text-slate-700">
                     <div className="flex items-center justify-between text-[10px] text-slate-500">
-                      <span>By {report.submitted_by.slice(0, 8)}…</span>
+                      <span>By {getMemberName(report.submitted_by)}</span>
                       <span>{new Date(report.created_at).toLocaleString()}</span>
                     </div>
                     <div className="mt-1 whitespace-pre-wrap">
