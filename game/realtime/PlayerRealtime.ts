@@ -335,6 +335,10 @@ export function broadCastUserNames(n:string){
 export function broadcastMeetingState(a:boolean){
   channel?.send({type:"broadcast",event:"meetingChange",payload:{flag:a}})
 }
+export function broadcastCallLeave(){
+
+  channel?.send({type:"broadcast",event:"Call-Ended",payload:{from:playerIdRef,to:currentState.callerId}})
+}
 export function handleMute(flag:boolean){
   for(const [key,value] of peersConnections){
     const Peer=value;
@@ -699,6 +703,15 @@ const data = payload as { from: string; to: string ,answer?:RTCSessionDescriptio
     
   }
 });
+
+channel.on("broadcast", { event: "Call-Ended" }, async ({ payload }) => {
+  const data = payload as {from:string,to:string}
+
+  if (!data.from || data.from === playerIdRef) return;
+  if (data.to === playerIdRef) {
+    RTCCallerEventEmitter.emit("onCallLeave")
+  }
+})
 channel.on("broadcast", { event: "Caller-Webrtc-ICE" }, async ({ payload }) => {
 const data = payload as { from: string; to: string ,ICE:string};
 

@@ -85,7 +85,7 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
         <WorkSessionTimer />
         {/* <LeaveRoomButton /> */}
       </div>
-        {inMeeting && <Button style={{position:"absolute",left:"10%",bottom:"5%",zIndex:"10000"}}
+        {inMeeting && !isWhiteboardOpen && <Button style={{position:"absolute",left:"10%",bottom:"5%",zIndex:"10000"}}
           onClick={handleOpenWhiteboard}
           className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-md px-4 py-2 shadow-md hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:ring-offset-1 transition"
           size="sm"

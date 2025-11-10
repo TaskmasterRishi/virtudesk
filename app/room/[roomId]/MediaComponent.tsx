@@ -11,7 +11,7 @@ import { error } from "console";
 // Math from phaser conflicts with native Math, using native Math directly
 import { Mic, MicOff, PhoneOff } from "lucide-react";
 import { Span } from "next/dist/trace";
-import {Init , participantDataType,setNewParticipantServerAction,setParticipantBlobChunk,setParticipantOffset,removeParticipantServerAction,stopMeeting,stopRecorder,type MeetingSummary, saveMeetingSummary
+import {Init , participantDataType,setNewParticipantServerAction,setParticipantBlobChunk,setParticipantOffset,stopMeeting,stopRecorder,type MeetingSummary, saveMeetingSummary
 
 } from "./../../actions/Summary"
 import { set } from "react-hook-form";
@@ -47,7 +47,8 @@ export default function  MediaComponent(props:propType){
     const myVideoRef=useRef<HTMLVideoElement | null>(null);
     const videoRefs=useRef<{[id:string]:HTMLVideoElement | null}>({});
     const hasSentMessage = useRef(false);
-    const recorder=useRef<MediaRecorder | null>(null)
+    const recorder=useRef<MediaRecorder | null>(null);
+    const currentParticipantIdRef=useRef<string | null>(null); // Store participant ID to prevent it from changing
 
     const [myStream,setMyStream]=useState<MediaStream | null>(null)
     const [mode,setMode]=useState<ModeType>(MODE.PROXIMITY) // proximity | meeting
@@ -86,28 +87,97 @@ export default function  MediaComponent(props:propType){
         }catch(e){throw new Error(""+e)}
     } 
     const handleRecorder=useCallback(async (s:MediaStream)=>{
+        // Filter to only audio tracks to reduce blob size
+        const audioTracks = s.getAudioTracks();
+        if(audioTracks.length === 0){
+            console.error("No audio tracks in stream");
+            return;
+        }
+        
+        // Create new stream with only audio tracks
+        const audioOnlyStream = new MediaStream(audioTracks);
+        
+        // Get and store participant ID at the start - capture it in closure
+        const participantId = getSelfId();
+        if(!participantId || participantId === "notSet"){
+            console.error("Invalid participant ID:", participantId);
+            return;
+        }
+        
+        // Store in ref for debugging, but use the closure variable for actual operations
+        currentParticipantIdRef.current = participantId;
+        
+        // Log the ID we're using
+        console.log(`[${participantId}] Starting recorder. getSelfId() returned:`, participantId);
+        console.log(`[${participantId}] This ID will be used for all chunks and stopRecorder`);
+        
         const n:participantDataType={
-            id:getSelfId() || "notSet",
+            id: participantId, // Use the captured participantId
             offset:Date.now(),
             chunks:[],
             isFinished:false
         }
-        recorder.current=new MediaRecorder(s);
-       await  setNewParticipantServerAction(n)
-        recorder.current.start(2500);
-        recorder.current.ondataavailable=(e)=>{
-            setParticipantBlobChunk(n.id,e.data).catch((error) => {
-                console.error("Error setting participant blob chunk:", error);
-            });
+        
+        console.log(`[${participantId}] Participant data created with ID: ${n.id}`);
+        
+        // Set participant BEFORE creating recorder
+        await setNewParticipantServerAction(n);
+        
+        // Log that participant was set
+        console.log(`[${participantId}] ✅ Participant set with ID: ${n.id}`);
+        
+        // Use audio-only stream for recording
+        recorder.current = new MediaRecorder(audioOnlyStream, {
+            mimeType: 'audio/webm;codecs=opus' // Use opus codec for better compression
+        });
+        
+        recorder.current.start(2500); // 2.5 second chunks
+        
+        // IMPORTANT: Use the captured participantId from closure, not from ref or getSelfId()
+        // This ensures the same ID is used throughout the recording lifecycle
+        const recordingParticipantId = participantId;
+        
+        recorder.current.ondataavailable = async (e) => {
+            if(e.data && e.data.size > 0){
+                // ALWAYS use the captured participantId from closure
+                const currentGetSelfId = getSelfId();
+                console.log(`[${recordingParticipantId}] Data available: ${e.data.size} bytes`);
+                console.log(`[${recordingParticipantId}] Using ID: ${recordingParticipantId}, getSelfId() now: ${currentGetSelfId}`);
+                
+                if(recordingParticipantId !== currentGetSelfId){
+                    console.warn(`[${recordingParticipantId}] ⚠️ ID mismatch! Using captured ID: ${recordingParticipantId}, getSelfId() returned: ${currentGetSelfId}`);
+                }
+                
+                await setParticipantBlobChunk(recordingParticipantId, e.data).catch((error) => {
+                    console.error(`[${recordingParticipantId}] Error setting participant blob chunk:`, error);
+                });
+            }
         }
-        recorder.current.onstop=async()=>{
-           console.log( await stopRecorder(n.id,Date.now()))
+        
+        recorder.current.onstop = async () => {
+            // ALWAYS use the captured participantId from closure
+            const currentGetSelfId = getSelfId();
+            console.log(`[${recordingParticipantId}] Recorder stopped`);
+            console.log(`[${recordingParticipantId}] Using ID: ${recordingParticipantId}, getSelfId() now: ${currentGetSelfId}`);
+            
+            if(recordingParticipantId !== currentGetSelfId){
+                console.warn(`[${recordingParticipantId}] ⚠️ ID mismatch! Using captured ID: ${recordingParticipantId}, getSelfId() returned: ${currentGetSelfId}`);
+            }
+            
+            const result = await stopRecorder(recordingParticipantId, Date.now());
+            if(result){
+                console.log(`[${recordingParticipantId}] Transcription result:`, result.text?.substring(0, 100));
+            } else {
+                console.error(`[${recordingParticipantId}] stopRecorder returned null`);
+            }
+            // Clear the ref when done
+            currentParticipantIdRef.current = null;
         }
     },[recorder])
     const handleStartMeeting=useCallback(async ()=>{
         await Init(Date.now());
         const newStream:MediaStream=await getUserMedia({audio:true,video:true});
-        handleRecorder(newStream);
+       await handleRecorder(newStream);
 
         updateMode(MODE.MEETING)
         broadcastModeChange(MODE.MEETING)
@@ -119,7 +189,7 @@ export default function  MediaComponent(props:propType){
     },[])
     const handleJoinMeeting=useCallback(async ()=>{
         const newStream:MediaStream=await getUserMedia({audio:true,video:true});
-        handleRecorder(newStream)
+        await handleRecorder(newStream)
         updateMode(MODE.MEETING)
         broadcastModeChange(MODE.MEETING)
         props.set(true)
@@ -139,12 +209,12 @@ export default function  MediaComponent(props:propType){
             }
         })
         if(isPresent){
-            // Other participants still in meeting, don't generate summary yet
+          
         }
         else{
-            // Last participant leaving - generate summary
+          
             broadcastMeetingState(false);
-            // Generate meeting summary when meeting ends
+           
             stopMeeting(props.roomId).then((summary: MeetingSummary | null) => {
                 if (summary) {
                     console.log("Meeting Summary:", summary.summary);
@@ -322,7 +392,7 @@ export default function  MediaComponent(props:propType){
     
     return<>
     {props.isWhiteboardOpen && (
-        <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', zIndex: 2000 }}>
+        <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', zIndex: 120050 }}>
             {props.children}
         </div>
     )}
