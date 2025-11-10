@@ -5,6 +5,8 @@ import { useUser } from "@clerk/nextjs";
 import { supabase } from "@/utils/supabase/client";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { useOrganization } from "@clerk/nextjs";
+import { setTaskPanelOpen } from "@/utils/taskPanelState";
 
 type AssignmentPayload = {
   id: string;
@@ -15,8 +17,11 @@ type AssignmentPayload = {
 
 export default function TaskAssignmentNotification() {
   const { user } = useUser();
+  const { organization } = useOrganization();
+  const [assignedByName, setAssignedByName] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const [payload, setPayload] = useState<AssignmentPayload | null>(null);
+  const [taskTitle, setTaskTitle] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -30,6 +35,40 @@ export default function TaskAssignmentNotification() {
     return () => { supabase.removeChannel(channel); };
   }, [user]);
 
+  useEffect(() => {
+    async function load() {
+      if (!payload?.assigned_by || !organization?.getMemberships) return;
+      const list = await organization.getMemberships();
+      const match = list.data.find(
+        (m: any) => m.publicUserData?.userId === payload.assigned_by
+      );
+      if (!match) return;
+      const first = match.publicUserData?.firstName;
+      const last = match.publicUserData?.lastName;
+      setAssignedByName(
+        first || last
+          ? `${first ?? ""} ${last ?? ""}`.trim()
+          : match.publicUserData?.identifier.split("@")[0] || ""
+      );
+    }
+    load();
+  }, [payload, organization]);
+  
+  useEffect(() => {
+    let aborted = false;
+    async function loadTask() {
+      if (!payload?.task_id) return;
+      const { data } = await supabase
+        .from("tasks")
+        .select("title")
+        .eq("id", payload.task_id)
+        .single();
+      if (!aborted) setTaskTitle(data?.title ?? null);
+    }
+    loadTask();
+    return () => { aborted = true; };
+  }, [payload?.task_id]);
+
   if (!payload) return null;
 
   return (
@@ -40,11 +79,11 @@ export default function TaskAssignmentNotification() {
         </DialogHeader>
         <div className="space-y-2">
           <p className="text-sm text-muted-foreground">You have been assigned a new task.</p>
-          <div className="text-sm"><span className="font-medium">Task ID:</span> {payload.task_id}</div>
-          <div className="text-sm"><span className="font-medium">Assigned By:</span> {payload.assigned_by.slice(0,8)}…</div>
+          <div className="text-sm"><span className="font-medium">Task {taskTitle ? '' : 'ID'} :</span> {taskTitle ?? `#${payload.task_id.slice(0, 8)}…`}</div>
+          <div className="text-sm"><span className="font-medium">Assigned By :</span> {assignedByName || payload.assigned_by.slice(0,8) + '…'}</div>
           <div className="flex justify-end gap-2 pt-2">
             <Button variant="outline" onClick={() => setOpen(false)}>Dismiss</Button>
-            <Button onClick={() => setOpen(false)}>View</Button>
+            <Button onClick={() => {setOpen(false);setTaskPanelOpen(true);}}>View</Button>
           </div>
         </div>
       </DialogContent>

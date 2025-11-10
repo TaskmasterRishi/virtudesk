@@ -16,6 +16,7 @@ import { cn } from "@/lib/utils";
 import { getRooms } from "@/app/actions/Room";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { CheckCircle2, PlayCircle, Trash2, UserPlus2, Clock3, AlertTriangle, CheckCheck, Tag, LayoutList, Paperclip, ChevronLeft, ChevronRight } from "lucide-react";
+import { onTaskPanelChange } from "@/utils/taskPanelState";
 
 type Priority = 'low' | 'medium' | 'high' | 'urgent';
 type Status = 'pending' | 'in_progress' | 'completed' | 'cancelled';
@@ -48,6 +49,8 @@ export default function TasksPanel() {
   useEffect(() => {
     fetchTasks();
   }, [fetchTasks]);
+
+  
 
   useEffect(() => {
     if (!orgId) return;
@@ -132,6 +135,12 @@ export default function TasksPanel() {
     void load();
   }, [organization]);
 
+  useEffect(() => {
+    const unsub = onTaskPanelChange((open) => {
+      setIsOpen(open); 
+    });
+    return () => unsub();
+  }, []);
   return (
     <>
       {/* Toggle Button - Always visible on the right edge, smooth triangle shape */}
