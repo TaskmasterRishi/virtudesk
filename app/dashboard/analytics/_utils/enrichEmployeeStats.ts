@@ -8,7 +8,7 @@ export function enrichEmployeeStatsWithClerkData(
   if (!memberships || memberships.length === 0) return employeeStats;
 
   try {
-    const userMap = new Map<string, { name: string; email: string }>();
+    const userMap = new Map<string, { name: string; email: string; role?: string }>();
 
     memberships.forEach((membership: any) => {
       const userId = membership.publicUserData?.userId;
@@ -17,11 +17,20 @@ export function enrichEmployeeStatsWithClerkData(
         const lastName = membership.publicUserData.lastName || '';
         const name = firstName && lastName ? `${firstName} ${lastName}` : (membership.publicUserData.identifier || 'Unknown');
         const email = membership.publicUserData.identifier || '';
-        userMap.set(userId, { name, email });
+        const role = membership.role as string | undefined;
+        userMap.set(userId, { name, email, role });
       }
     });
 
-    return employeeStats.map(stat => {
+    // Exclude managers/admins from analytics
+    const filtered = employeeStats.filter(stat => {
+      const u = userMap.get(stat.userId);
+      const role = u?.role || '';
+      return !(role === 'org:admin' || role === 'admin' || role.includes('admin'));
+    });
+
+    // Enrich remaining users
+    return filtered.map(stat => {
       const userData = userMap.get(stat.userId);
       return {
         ...stat,

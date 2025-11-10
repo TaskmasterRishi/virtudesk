@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { destroyRealtime } from '@/game/realtime/PlayerRealtime'
 import { LogOut } from 'lucide-react'
 
-export default function LeaveRoomButton() {
+export default function LeaveRoomButton({ roomId }: { roomId?: string }) {
 	const router = useRouter()
 	const [isLeaving, setIsLeaving] = useState(false)
 
@@ -14,6 +14,10 @@ export default function LeaveRoomButton() {
 		if (isLeaving) return
 		setIsLeaving(true)
 		try {
+			// Clear persisted room chat for this room
+			if (roomId) {
+				try { localStorage.removeItem(`room-chat-${roomId}`) } catch {}
+			}
 			await destroyRealtime()
 		} catch {
 			// ignore
@@ -21,7 +25,7 @@ export default function LeaveRoomButton() {
 			// Navigating away will unmount Phaser and trigger its cleanup
 			router.replace('/dashboard')
 		}
-	}, [isLeaving, router])
+	}, [isLeaving, router, roomId])
 
 	return (
 		
