@@ -1,17 +1,23 @@
 'use client'
 import React, { useState,useEffect,useCallback,useRef, Ref, RefObject, CSSProperties } from "react";
-import {createOffer, setSTREAM,setMediaElement, MediaComponentTtype,RTCEventEmitter,getMyId,nullifySTREAM,destroyRealtime,setMODE, 
-    startMeeting, joinMeeting, leaveMeeting, setMeetingParticipants} from "../../../game/realtime/PlayerRealtime"
-import { useAuth } from '@clerk/nextjs';
+import {MODE,ModeType,destroyRealtime,participantType,registerSetMode,setModeState,setStreamState,startSignaling,RTCEventEmitter,registerSetParticipants,
+        broadcastModeChange,broadCastUserNames,setCurrentStateName,registerSetUserNames,broadcastMeetingState,registerSetIsMeeting,
+        sendMeetingInvite,getMyId,registerSetShowInviteNotification,renegotiate,handleMute,getSelfId
+    } from "../../../game/realtime/PlayerRealtime"
+import { useUser,useAuth } from '@clerk/nextjs';
 import LeaveRoomButton from './LeaveRoomButton';
 import { Button } from "@/components/ui/button";
+import { error } from "console";
+// Math from phaser conflicts with native Math, using native Math directly
+import { Mic, MicOff, PhoneOff } from "lucide-react";
+import { Span } from "next/dist/trace";
+import {Init , participantDataType,setNewParticipantServerAction,setParticipantBlobChunk,setParticipantOffset,removeParticipantServerAction,stopMeeting,stopRecorder,type MeetingSummary, saveMeetingSummary
+
+} from "./../../actions/Summary"
 import { set } from "react-hook-form";
 import { CollaborativeWhiteboardProps } from "@/components/CollaborativeWhiteboard";
 import { Video } from "lucide-react";
-type Constraints = {
-    audio:boolean,
-    video:boolean
-}
+
 const CSS:CSSProperties={
     position:"absolute",top:"50%",left:"50%",
     backgroundColor:"black",
@@ -19,316 +25,634 @@ const CSS:CSSProperties={
     display:"flex",
     transform:"translate(-50%,-50%)"
 }
-const videoCss:CSSProperties={height:"360px",width:"480px",backgroundColor:"red"}
 type propType={
     handleOpenWhiteboard:()=>void,
     set:React.Dispatch<React.SetStateAction<boolean>>,
     children:React.ReactNode,
-    isWhiteboardOpen:boolean
-
+    isWhiteboardOpen:boolean,
+    roomId:string
 }
+
 export default function  MediaComponent(props:propType){
     
-    const [stream,setStream] = useState<MediaStream|undefined>(undefined);
-    const [participants,setParticipants]=useState<MediaComponentTtype[]>([] as MediaComponentTtype[])
-    const [mode,setModeState]=useState<string>('proximity') // proximity | 1:1 | meeting
-    const [showNotification, setShowNotification] = useState(false);
-    const [meetingInvite, setMeetingInvite] = useState<any>(null);
-    const [inMeeting, setInMeeting] = useState(false);
-    const [myVideoStream, setMyVideoStream] = useState<MediaStream | null>(null);
-    const [meetingParticipants, setMeetingParticipantsState] = useState<MediaComponentTtype[]>([]);
-    
     const { orgRole } = useAuth();
+    const { user, isLoaded } = useUser();
+
     const getUserRole = (): string => {
         if (!orgRole) return 'member';
         return orgRole.replace('org:', '');
     };
+
+    const audioRefs=useRef<{[id:string]:HTMLAudioElement | null}>({});
+    const myVideoRef=useRef<HTMLVideoElement | null>(null);
+    const videoRefs=useRef<{[id:string]:HTMLVideoElement | null}>({});
+    const hasSentMessage = useRef(false);
+    const recorder=useRef<MediaRecorder | null>(null)
+
+    const [myStream,setMyStream]=useState<MediaStream | null>(null)
+    const [mode,setMode]=useState<ModeType>(MODE.PROXIMITY) // proximity | meeting
+    const [participants,setParticipants]=useState<participantType[]>([]);
     const [userRole,setUserRole]=useState<string>(getUserRole()) // admin | team_manager | member
-   
+    const [userNames,setUserNames]= useState<{[id:string]:string}>({})
+    const [isMeeting,setIsMeeting]=useState<boolean>(false)
+    const [showInviteNotification,setShowInviteNotification]=useState<boolean>(false)
+    const [isMuted,setIsMuted]=useState<boolean>(false)
     
-    const requestMedia= useCallback(async (a:boolean=true,v:boolean=false)=>{
+    
+    function updateMode(m:ModeType){
+        setMode(m);
+        setModeState(m)
+    }
+    function updateMyStream(s:MediaStream){
+        setMyStream(s)
+        setStreamState(s)
+    }
 
-        const myStream =await  navigator.mediaDevices.getUserMedia({audio:a,video:v})
-        
-        setStream(myStream);
-        setSTREAM(myStream)
-        
+    const getUserMediaInit = useCallback(()=>{
+        navigator.mediaDevices.getUserMedia({audio:true})
+        .then((s)=>{
+            updateMyStream(s)
+            startSignaling()
+        })
+        .catch((e)=>{console.error("Failed in getUserMedia()\n\n"+e)})
     },[])
-   
 
-   useEffect(()=>{
-    setMODE(mode)
-   },[mode])
-    
-        useEffect(()=>{
-            setMediaElement(setParticipants,mode)
-            if(!stream){
-                 requestMedia(true,false);
-                console.log("mediacomponent mounted");
-            }
-        return ()=>{
-            stream?.getTracks().forEach((track) => {
-                    track.stop();
-                    console.log("goneeee")
-            });
-            RTCEventEmitter.removeAllListeners("onTrack in meeting")
-            RTCEventEmitter.removeAllListeners("onclose in meeting")
-             RTCEventEmitter.removeAllListeners("onTrack in proximity")
-            RTCEventEmitter.removeAllListeners("onclose in proximity")
-            setParticipants([])
-            console.log("mediacomponent unmounted")
-            nullifySTREAM()
-            destroyRealtime().then(()=>{console.log("destroyrealtime complete")})
+    async function getUserMedia(c:{video:boolean,audio:boolean}){
+        try{
+            const newStream=await navigator.mediaDevices.getUserMedia({audio:c.audio,video:c.video,})
+            updateMyStream(newStream);
+            return newStream;
+
+        }catch(e){throw new Error(""+e)}
+    } 
+    const handleRecorder=useCallback(async (s:MediaStream)=>{
+        const n:participantDataType={
+            id:getSelfId() || "notSet",
+            offset:Date.now(),
+            chunks:[],
+            isFinished:false
         }
+        recorder.current=new MediaRecorder(s);
+       await  setNewParticipantServerAction(n)
+        recorder.current.start(2500);
+        recorder.current.ondataavailable=(e)=>{
+            setParticipantBlobChunk(n.id,e.data).catch((error) => {
+                console.error("Error setting participant blob chunk:", error);
+            });
+        }
+        recorder.current.onstop=async()=>{
+           console.log( await stopRecorder(n.id,Date.now()))
+        }
+    },[recorder])
+    const handleStartMeeting=useCallback(async ()=>{
+        await Init(Date.now());
+        const newStream:MediaStream=await getUserMedia({audio:true,video:true});
+        handleRecorder(newStream);
+
+        updateMode(MODE.MEETING)
+        broadcastModeChange(MODE.MEETING)
+        broadcastMeetingState(true)
+        props.set(true)
+        setIsMeeting(true)
+        renegotiate(newStream,MODE.MEETING);
+        
+    },[])
+    const handleJoinMeeting=useCallback(async ()=>{
+        const newStream:MediaStream=await getUserMedia({audio:true,video:true});
+        handleRecorder(newStream)
+        updateMode(MODE.MEETING)
+        broadcastModeChange(MODE.MEETING)
+        props.set(true)
+        setIsMeeting(true)
+        renegotiate(newStream,MODE.MEETING);
+    },[])
+    const handleLeaveMeeting=useCallback(async ()=>{
+        recorder.current?.stop();
+       
+        const newStream : MediaStream= await getUserMedia({audio:true,video:false})
+        updateMode(MODE.PROXIMITY)
+        broadcastModeChange(MODE.PROXIMITY)
+        let isPresent=false;
+        participants.forEach((p)=>{
+            if(p.mode===MODE.MEETING){
+                isPresent=true
+            }
+        })
+        if(isPresent){
+            // Other participants still in meeting, don't generate summary yet
+        }
+        else{
+            // Last participant leaving - generate summary
+            broadcastMeetingState(false);
+            // Generate meeting summary when meeting ends
+            stopMeeting(props.roomId).then((summary: MeetingSummary | null) => {
+                if (summary) {
+                    console.log("Meeting Summary:", summary.summary);
+                    console.log("Key Points:", summary.keyPoints);
+                    console.log("Participants:", summary.participants);
+                    const durationMinutes = summary.duration / 60000;
+                    console.log("Duration:", Math.floor(durationMinutes) as number, "minutes");
+                    // Save to Supabase
+                    saveMeetingSummary(summary, props.roomId).catch((error) => {
+                        console.error("Error saving meeting summary:", error);
+                    });
+                }
+            }).catch((error) => {
+                console.error("Error generating meeting summary:", error);
+            });
+        }
+        props.set(false)
+        renegotiate(newStream,MODE.PROXIMITY);
+
+    },[participants, props.roomId])
+
+    const handleInvite=useCallback((participantId: string)=>{
+        sendMeetingInvite(participantId);
+    }, [])
+    
+    const handleAcceptInvite=useCallback(async ()=>{
+        setShowInviteNotification(false);
+        await handleJoinMeeting();
     },[])
     
+    const handleRejectInvite=useCallback(()=>{
+        setShowInviteNotification(false);
+    },[])
+
+    const registerEvents = useCallback(()=>{
+        RTCEventEmitter.removeAllListeners("onTrack")
+        RTCEventEmitter.on("onTrack",(from:string,track:MediaStreamTrack,mode:ModeType)=>{
+           
+                setParticipants((prev)=>{
+                    let isPresent=false;
+                    prev.forEach((p)=>{
+                        if(p.id===from){
+                            isPresent=true;
+                            p.stream=new MediaStream([track])
+                        }
+                    })
+                    if(isPresent){
+                        return [...prev]
+                    }
+                    else{
+                         let newParticipant:participantType={id:from,mode:mode,stream:new MediaStream([track])}
+                         return [...prev,newParticipant]
+                    }
+                })
+        })
+        RTCEventEmitter.removeAllListeners("onMeetingTrack")
+        RTCEventEmitter.on("onMeetingTrack",(from:string,track:MediaStreamTrack,mode:ModeType,flag:boolean)=>{
+           console.log("\n\n\wrfwn\n\n\nhiiiiiiiii\n\n\n\n\n\nfwf\n\n\n")
+                setParticipants((prev)=>{
+                    let isPresent=false;
+                    prev.forEach((p)=>{
+                        if(p.id===from){
+                            isPresent=true;
+                            if(!flag){
+                                p.stream=new MediaStream([track])
+                            }
+                            else{
+                                if(p.stream && p.stream.getTracks().length===1){
+                                    p.stream.addTrack(track)
+                                }
+                            }
+                        }
+                    })
+                    return [...prev]
+                })
+        })
+        RTCEventEmitter.removeAllListeners("onParticipant");
+        RTCEventEmitter.on("onParticipant",(participant:participantType)=>{
+            setParticipants((prev)=>{
+
+                let isPresent=false;  
+                prev.forEach((p)=>{
+                    if(p.id===participant.id){
+                        isPresent=true;
+                    }
+                })
+                if(isPresent){
+                    return prev
+                }
+                else{
+                    return [...prev,participant]
+                }
+            })      
+        })
+    },[])
+
+    
+
+
+    useEffect(()=>{
+        registerSetMode(setMode)
+        registerSetParticipants(setParticipants)
+        registerSetUserNames(setUserNames)
+        registerSetIsMeeting(setIsMeeting)
+        registerSetShowInviteNotification(setShowInviteNotification)
+
+        getUserMediaInit();
+        registerEvents()
+
+        return ()=>{
+            registerSetMode(null);
+            registerSetParticipants(null)
+            registerSetUserNames(null)
+            registerSetIsMeeting(null)
+            registerSetShowInviteNotification(null)
+            RTCEventEmitter.removeAllListeners()
+            recorder.current=null
+        }
+   },[])
+
     useEffect(() => {
         const role = getUserRole();
         setUserRole(role);
         console.log("orgRole:", orgRole, "userRole:", role);
     }, [orgRole]);
-    
-    // Handle meeting invite notifications
     useEffect(() => {
-        const handleMeetingInvite = (event: CustomEvent) => {
-            console.log("Received meeting invite event:", event.detail);
-            setMeetingInvite(event.detail);
-            setShowNotification(true);
-        };
-
-        window.addEventListener('meeting-invite', handleMeetingInvite as EventListener);
+        if (isLoaded && user && !hasSentMessage.current) {
+            const name = user.fullName || user.username || user.primaryEmailAddress?.emailAddress || '';
+            registerSetUserNames(setUserNames)
+            setCurrentStateName(name)
+            broadCastUserNames(name)
+            hasSentMessage.current=true;
         
-        return () => {
-            window.removeEventListener('meeting-invite', handleMeetingInvite as EventListener);
-        };
-    }, []);
-    
-    const handleStartMeeting = useCallback(async () => {
-        await startMeeting(setStream);
-        setInMeeting(true);
-        props.set(true)
-        setModeState('meeting');
-        setMODE('meeting');
-    }, []);
-    
-    const handleAcceptMeeting = useCallback(async () => {
-        await joinMeeting(setStream);
-        setInMeeting(true);
-        props.set(true)
-        setModeState('meeting');
-        setMODE('meeting');
-        setShowNotification(false);
-        setMeetingInvite(null);
-    }, []);
-    
-    const handleRejectMeeting = useCallback(() => {
-        setShowNotification(false);
-        setMeetingInvite(null);
-    }, []);
-    
-    const handleLeaveMeeting = useCallback(() => {
-        // Just leave the room, no need to switch back to proximity
-        destroyRealtime();
-        window.location.href = '/dashboard';
-    }, []);
-
-
-    // Get my video stream when in meeting
-    useEffect(() => {
-        if (inMeeting && stream) {
-            setMyVideoStream(stream);
-            // Set my video using document method
-            const myVideo = document.getElementById('myVideo') as HTMLVideoElement;
-            if (myVideo) {
-                const myOwnStream=new MediaStream()
-                myVideo.srcObject = myOwnStream;
-                stream.getTracks().forEach((t)=>{
-                    myOwnStream.addTrack(t);
-                })
-            
-                myVideo.play().catch(console.error);
-            }
-        } else {
-            setMyVideoStream(null);
         }
-    }, [inMeeting, stream]);
+    }, [isLoaded, user]);
 
-    // Handle meeting participants when in meeting mode
-    useEffect(() => {
-        if (inMeeting) {
-            setMediaElement(setMeetingParticipantsState,mode);
-            setMeetingParticipants(meetingParticipants);
-        } else {
-            setMeetingParticipantsState([]);
-        }
-    }, [inMeeting]);
-
-    // Handle remote video streams using document methods
-    useEffect(() => {
-        meetingParticipants.forEach((participant) => {
-            const videoElement = document.getElementById(`meetingVideo${participant.from}`) as HTMLVideoElement;
-            const remoteStream = new MediaStream()
-            if (videoElement && participant.track) {
-
-                videoElement.srcObject = remoteStream;
-                participant.track.getTracks().forEach((t)=>{
-                    remoteStream.addTrack(t);
-                })
-                videoElement.volume=1
-                videoElement.play().catch(console.error);
+    useEffect(()=>{
+        if(mode===MODE.PROXIMITY){
+        participants.forEach((p)=>{
+            if(p.mode!==MODE.PROXIMITY){
+                return
             }
-        });
-    }, [meetingParticipants]);
+            const element=audioRefs.current[p.id];
+            if(!element){throw new Error("AUDIO ELEMENT is null in mediacompionent.tsx ")}
+            else{
 
-   useEffect(()=>{
-      participants.map((participant,index)=>{
-        const el:HTMLMediaElement=document.getElementById(`PeerAudio${participant.from}`)as HTMLMediaElement;
-             
-                const remoteStream = new MediaStream()
-                el.srcObject=remoteStream
-                participant.track.getTracks().forEach((t)=>{
-                    remoteStream.addTrack(t);
-                })
-                el.volume=1
-                if(el){
-                    el.play().catch(()=>{console.error("not playing")})
+                element.srcObject=p.stream
+            }
+           
+        })
+        }
+        else if(mode===MODE.MEETING){
+            participants.forEach((p)=>{
+                if(p.mode!==MODE.MEETING){return;}
+                const element=videoRefs.current[p.id];
+                if(!element){throw new Error("AUDIO ELEMENT is null in mediacompionent.tsx ")}
+                else{
+                    element.srcObject=p.stream
                 }
-
             })
-   },[participants])
-      
-   
+            const element=myVideoRef.current
+                if(!element){throw new Error("AUDIO ELEMENT is null in mediacompionent.tsx ")}
+                else{
+                    element.srcObject=myStream
+                }
+        }
+        console.log("\n\n\n\n\\n\n\n\n\\n\n\n\n\n\n\n\n\n"+participants.length+"\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n")
+    },[participants,mode])
 
+  
+    
+
+
+ 
     
     return<>
     {props.isWhiteboardOpen && (
-        <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', zIndex: 1002 }}>
+        <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', zIndex: 2000 }}>
             {props.children}
         </div>
     )}
-        {/* Meeting Component - Full screen when in meeting */}
-        {inMeeting && (
-            <div className="fixed top-0 left-0 w-full h-full z-[100] pointer-events-auto bg-gray-900">
-                <div className="flex flex-col h-full">
-                    {/* Meeting Header */}
-                    <div className="flex justify-between items-center p-4 bg-gray-800 border-b border-gray-700">
-                        <div>
-                            <h2 className="text-lg font-semibold text-white">Meeting in Progress</h2>
-                            <p className="text-sm text-gray-300">{meetingParticipants.length + 1} participants</p>
-                        </div>
-                        {/* <Button
-                                  onClick={props.handleOpenWhiteboard}
-                                  className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-md px-4 py-2 shadow-md hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:ring-offset-1 transition"
-                                  size="sm"
-                                >
-                                  Open Whiteboard
-                                </Button> */}
-                        <LeaveRoomButton />
-                    </div>
-                    
-                    {/* Meeting Content - Video Grid */}
-                    <div className="flex-1 p-4 overflow-y-auto">
-                        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 h-full">
-                            {/* My Video */}
-                            
-                            {mode==="meeting" && (
-                                <div className="relative bg-gray-800 rounded-lg overflow-hidden">
-                                    <video
-                                        id="myVideo"
-                                        autoPlay
-                                        playsInline
-                                        
-                                        className="w-full h-full object-cover -scale-x-100"
-                                    />
-                                    <div className="absolute bottom-2 left-2 bg-black bg-opacity-50 text-white px-2 py-1 rounded text-sm">
-                                        You
-                                    </div>
-                                </div>
-                            )}
-                            
-                            {/* Remote Videos */}
-                            {meetingParticipants.map((participant) => (
-                                <div key={participant.from} className="relative bg-gray-800 rounded-lg overflow-hidden">
-                                    <video
-                                        id={`meetingVideo${participant.from}`}
-                                        autoPlay
-                                        playsInline
-                                        className="w-full h-full object-cover -scale-x-100"
-                                    />
-                                    <div className="absolute bottom-2 left-2 bg-black bg-opacity-50 text-white px-2 py-1 rounded text-sm">
-                                        {participant.from}
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                </div>
-            </div>
-        )}
-        
-        {/* Start Meeting Button - Only for admin/manager when not in meeting */}
-        {(userRole === "admin" || userRole === "team_manager") && !inMeeting && (
-            <button 
-                className="absolute top-50 right-4 z-50 px-4 py-2 bg-blue-600 border-slate-200 hover:bg-blue-700 text-white rounded-lg shadow-lg transition-colors duration-200 font-medium flex items-center gap-2"
-                onClick={handleStartMeeting}
-            >
-                <Video className="w-4 h-4" />
-                Start Meeting
-            </button>
-        )}
-        
-        {/* Meeting Notification - Only show when not in meeting */}
-        {!inMeeting && showNotification && meetingInvite && (
-            <div className="fixed top-4 left-4 z-50 pointer-events-auto">
-                <div className="bg-white rounded-lg shadow-xl p-4 max-w-sm w-full border border-gray-200">
-                    <div className="flex items-center mb-3">
-                        <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center mr-3">
-                            <svg className="w-5 h-5 text-blue-600" fill="currentColor" viewBox="0 0 20 20">
-                                <path d="M2 6a2 2 0 012-2h6a2 2 0 012 2v8a2 2 0 01-2 2H4a2 2 0 01-2-2V6zM14.553 7.106A1 1 0 0014 8v4a1 1 0 00.553.894l2 1A1 1 0 0018 13V7a1 1 0 00-1.447-.894l-2 1z" />
-                            </svg>
-                        </div>
-                        <div>
-                            <h3 className="text-sm font-semibold text-gray-900">Meeting Invitation</h3>
-                        </div>
-                    </div>
-                    
-                    <div className="mb-4">
-                        <p className="text-sm text-gray-700">
-                            You've been invited to join a meeting.
-                        </p>
-                    </div>
-
-                    <div className="flex gap-2">
-                        <button
-                            onClick={handleAcceptMeeting}
-                            className="flex-1 bg-green-600 hover:bg-green-700 text-white px-3 py-2 rounded text-sm font-medium transition-colors"
-                        >
-                            Accept
-                        </button>
-                        <button
-                            onClick={handleRejectMeeting}
-                            className="flex-1 bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded text-sm font-medium transition-colors"
-                        >
-                            Reject
-                        </button>
-                    </div>
-                </div>
-            </div>
-        )}
-        
-        {/* Proximity Chat Audio Elements - Only show when not in meeting */}
-        {!inMeeting && participants.map((participant, index) => {
-            if (participant.from === getMyId()) return;
-            return (
-                <audio
-                    key={participant.from}
-                    id={`PeerAudio${participant.from}`}
-                    autoPlay
-                    playsInline
-                    className="hidden"
-                />
-            );
-            })}
-    </>
     
+    {/* Meeting Invite Notification */}
+    {showInviteNotification && mode!==MODE.MEETING && (
+        <div style={{
+            position:"fixed",
+            top:"2rem",
+            right:"2rem",
+            zIndex:2000,
+            padding:"1.25rem",
+            backgroundColor:"rgba(15, 23, 42, 0.95)",
+            backdropFilter:"blur(8px)",
+            borderRadius:"0.75rem",
+            border:"1px solid rgba(148, 163, 184, 0.15)",
+            boxShadow:"0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5)",
+            minWidth:"320px",
+            maxWidth:"400px"
+        }}>
+            <div style={{
+                display:"flex",
+                flexDirection:"column",
+                gap:"1rem"
+            }}>
+                <p style={{
+                    color:"rgba(241, 245, 249, 0.95)",
+                    fontSize:"0.875rem",
+                    margin:0
+                }}>
+                    You have been invited to a meeting
+                </p>
+                <div style={{
+                    display:"flex",
+                    gap:"0.75rem",
+                    justifyContent:"flex-end"
+                }}>
+                    <button
+                        onClick={handleRejectInvite}
+                        style={{
+                            padding:"0.5rem 1rem",
+                            backgroundColor:"rgba(71, 85, 105, 0.6)",
+                            color:"rgba(241, 245, 249, 0.9)",
+                            border:"1px solid rgba(148, 163, 184, 0.2)",
+                            borderRadius:"0.5rem",
+                            fontSize:"0.875rem",
+                            fontWeight:"500",
+                            cursor:"pointer",
+                            transition:"all 0.2s ease-in-out"
+                        }}
+                        onMouseEnter={(e) => {
+                            e.currentTarget.style.backgroundColor = "rgba(71, 85, 105, 0.8)";
+                        }}
+                        onMouseLeave={(e) => {
+                            e.currentTarget.style.backgroundColor = "rgba(71, 85, 105, 0.6)";
+                        }}
+                    >Reject</button>
+                    <button
+                        onClick={handleAcceptInvite}
+                        style={{
+                            padding:"0.5rem 1rem",
+                            backgroundColor:"rgba(99, 102, 241, 0.8)",
+                            color:"white",
+                            border:"none",
+                            borderRadius:"0.5rem",
+                            fontSize:"0.875rem",
+                            fontWeight:"500",
+                            cursor:"pointer",
+                            transition:"all 0.2s ease-in-out"
+                        }}
+                        onMouseEnter={(e) => {
+                            e.currentTarget.style.backgroundColor = "rgba(99, 102, 241, 1)";
+                            e.currentTarget.style.transform = "scale(1.05)";
+                        }}
+                        onMouseLeave={(e) => {
+                            e.currentTarget.style.backgroundColor = "rgba(99, 102, 241, 0.8)";
+                            e.currentTarget.style.transform = "scale(1)";
+                        }}
+                    >Accept</button>
+                </div>
+            </div>
+        </div>
+    )}
+        
+
+
+
+{/*#############################################################################################################################################################################################################
+
+-----------------------------------------------------------------------------PROXIMITY--------------------------------------------------------------------------------------------------------------------------
+
+################################################################################################################################################################################################################
+*/}
+
+    {mode===MODE.PROXIMITY && 
+        <>
+            {participants.map((participant)=>{
+                if(participant.mode!==MODE.PROXIMITY){return}
+                return <audio 
+                    playsInline
+                    autoPlay
+                    key={participant.id}
+                    ref={(element)=>{audioRefs.current[participant.id]=element}}
+                    className={"AudioElement"+participant.id}
+                ></audio>
+            })}
+            {userRole!=="member" && !isMeeting && 
+             <button
+                className="fixed bottom-24 right-4 z-[1100] inline-flex items-center justify-center rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-md transition-colors hover:bg-indigo-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-1 md:bottom-28 md:right-6"
+                onClick={async(e)=>{await handleStartMeeting()}}
+            >Start Meeting</button>
+            }
+        </>
+    }
+   
+
+
+
+{/*#############################################################################           MEETING             ################################################################################################*/}
+
+
+        {mode===MODE.MEETING && 
+            <>
+                <div className="fixed inset-0 z-[1001] flex flex-col gap-6 bg-slate-950/90 pl-6 pr-0 py-6 backdrop-blur-2xl md:pl-10 md:pr-0 md:py-10">
+                    <div className="container grid w-full flex-1 grid-cols-[repeat(auto-fit,minmax(30rem,30rem))] justify-start gap-4 overflow-y-auto pr-2">
+                        <div className="video_wrapper relative h-[360px] w-[480px] overflow-hidden rounded-xl bg-slate-900/80 shadow-lg shadow-black/40">
+                            <video 
+                                playsInline
+                                autoPlay
+                                className="MyVideo absolute inset-0 h-full w-full bg-slate-900 object-cover"
+                                ref={myVideoRef}
+                                muted
+                            ></video>
+                        </div>
+                       
+                        {participants.map((participant,i)=>{
+                            if(participant.mode!==MODE.MEETING){return;}
+                            return <React.Fragment key={participant.id}>
+                                <div className="video_wrapper relative h-[360px] w-[480px] overflow-hidden rounded-xl bg-slate-900/80 shadow-lg shadow-black/40">
+                                    <video 
+                                        playsInline
+                                        autoPlay
+                                        className={"absolute inset-0 h-full w-full bg-slate-900 object-cover Vide aoElement"+participant.id}
+                                        ref={(element)=>{videoRefs.current[participant.id]=element}}
+                                    ></video>
+                                </div>
+                            </React.Fragment>
+                        })}
+                    </div>
+                    <div className="Panel" 
+                    style={{
+                        position:"absolute",
+                        right:"0.2%",
+                        top:"1.5rem",
+                        padding:"1rem",
+                        backgroundColor:"rgba(15, 23, 42, 0.95)",
+                        backdropFilter:"blur(8px)",
+                        display:"flex",
+                        flexDirection:"column",
+                        width:"15%",
+                        minWidth:"200px",
+                        gap:"0.75rem",
+                        borderRadius:"0.75rem",
+                        border:"1px solid rgba(148, 163, 184, 0.1)",
+                        boxShadow:"0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5)",
+                        height:"fit-content",
+                        maxHeight:"calc(100% - 3rem)",
+                        overflowY:"auto",
+                        overflowX:"hidden"
+                    }}>
+                        {participants.length===0 && (
+                            <div style={{
+                                display:"flex",
+                                alignItems:"center",
+                                justifyContent:"center",
+                                padding:"2rem 1rem",
+                                color:"rgba(148, 163, 184, 0.7)",
+                                fontSize:"0.875rem",
+                                fontWeight:"400",
+                                textAlign:"center",
+                                width:"100%"
+                            }}>
+                                No Participants Currently
+                            </div>
+                        )}
+                        {participants.map((p)=>{
+                            
+                            let u=userNames[p.id];
+
+                            return <React.Fragment key={p.id+"Names"}>
+                                <div  className="participantHolder" style={{
+                                    display:"flex",
+                                    alignItems:"center",
+                                    justifyContent:"space-between",
+                                    padding:"0.75rem 1rem",
+                                    backgroundColor:"rgba(30, 41, 59, 0.6)",
+                                    borderRadius:"0.5rem",
+                                    border:"1px solid rgba(148, 163, 184, 0.15)",
+                                    transition:"all 0.2s ease-in-out",
+                                    gap:"0.75rem",
+                                    minHeight:"3rem"
+                                }}>
+                                    <span style={{
+                                        color:"rgba(241, 245, 249, 0.95)",
+                                        fontSize:"0.875rem",
+                                        fontWeight:"500",
+                                        letterSpacing:"0.025em",
+                                        flex:"1",
+                                        overflow:"hidden",
+                                        textOverflow:"ellipsis",
+                                        whiteSpace:"nowrap"
+                                    }}>{u || "Unknown User"}</span>
+                                    {userRole!=="member"?
+                                     <button 
+                                        disabled={p.mode===MODE.MEETING}
+                                        onClick={()=>{handleInvite(p.id)}}
+                                        style={{
+                                            padding:"0.375rem 0.75rem",
+                                            backgroundColor:p.mode===MODE.MEETING ? "rgba(71, 85, 105, 0.5)" : "rgba(99, 102, 241, 0.8)",
+                                            color:p.mode===MODE.MEETING ? "rgba(148, 163, 184, 0.6)" : "white",
+                                            border:"none",
+                                            borderRadius:"0.375rem",
+                                            fontSize:"0.75rem",
+                                            fontWeight:"500",
+                                            cursor:p.mode===MODE.MEETING ? "not-allowed" : "pointer",
+                                            transition:"all 0.2s ease-in-out",
+                                            whiteSpace:"nowrap",
+                                            flexShrink:"0",
+                                            opacity:p.mode===MODE.MEETING ? 0.6 : 1
+                                        }}
+                                        onMouseEnter={(e) => {
+                                            if (p.mode !== MODE.MEETING) {
+                                                e.currentTarget.style.backgroundColor = "rgba(99, 102, 241, 1)";
+                                                e.currentTarget.style.transform = "scale(1.05)";
+                                            }
+                                        }}
+                                        onMouseLeave={(e) => {
+                                            if (p.mode !== MODE.MEETING) {
+                                                e.currentTarget.style.backgroundColor = "rgba(99, 102, 241, 0.8)";
+                                                e.currentTarget.style.transform = "scale(1)";
+                                            }
+                                        }}
+                                    >Invite</button>:
+                                    <div style={{
+                                        padding:"0.375rem 0.75rem",
+                                        backgroundColor:p.mode===MODE.MEETING ? "rgba(34, 197, 94, 0.2)" : "rgba(71, 85, 105, 0.4)",
+                                        color:p.mode===MODE.MEETING ? "rgba(34, 197, 94, 0.9)" : "rgba(148, 163, 184, 0.7)",
+                                        border:"1px solid",
+                                        borderColor:p.mode===MODE.MEETING ? "rgba(34, 197, 94, 0.3)" : "rgba(148, 163, 184, 0.2)",
+                                        borderRadius:"0.375rem",
+                                        fontSize:"0.75rem",
+                                        fontWeight:"500",
+                                        whiteSpace:"nowrap",
+                                        flexShrink:"0",
+                                        display:"flex",
+                                        alignItems:"center",
+                                        justifyContent:"center"
+                                    }}>
+                                        {p.mode===MODE.MEETING ? "In Meeting" : "Available"}
+                                    </div>}
+                                </div>
+                            </React.Fragment>
+                        })}
+                    </div>
+                    
+                    <div className="mt-auto flex flex-row items-center justify-center gap-3 pb-2">
+                        <button 
+                            style={{
+                                width:"3rem",
+                                height:"3rem",
+                                borderRadius:"50%",
+                                backgroundColor:isMuted ? "rgba(239, 68, 68, 0.8)" : "rgba(71, 85, 105, 0.8)",
+                                border:"1px solid",
+                                borderColor:isMuted ? "rgba(220, 38, 38, 0.3)" : "rgba(148, 163, 184, 0.2)",
+                                display:"flex",
+                                alignItems:"center",
+                                justifyContent:"center",
+                                cursor:"pointer",
+                                transition:"all 0.2s ease-in-out",
+                                color:"rgba(241, 245, 249, 0.9)",
+                                boxShadow:"0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -1px rgba(0, 0, 0, 0.2)"
+                            }}
+                            onClick={() => {
+                                setIsMuted(!isMuted);
+                                handleMute(!isMuted);
+                            }}
+                            onMouseEnter={(e) => {
+                                e.currentTarget.style.backgroundColor = isMuted ? "rgba(220, 38, 38, 1)" : "rgba(71, 85, 105, 1)";
+                                e.currentTarget.style.transform = "scale(1.05)";
+                            }}
+                            onMouseLeave={(e) => {
+                                e.currentTarget.style.backgroundColor = isMuted ? "rgba(239, 68, 68, 0.8)" : "rgba(71, 85, 105, 0.8)";
+                                e.currentTarget.style.transform = "scale(1)";
+                            }}
+                        >
+                            {isMuted ? <MicOff size={20} /> : <Mic size={20} />}
+                        </button>
+                        <button
+                         style={{
+                            width:"3rem",
+                            height:"3rem",
+                            borderRadius:"0.75rem",
+                            backgroundColor:"rgba(239, 68, 68, 0.9)",
+                            border:"1px solid rgba(220, 38, 38, 0.3)",
+                            color:"white",
+                            display:"flex",
+                            alignItems:"center",
+                            justifyContent:"center",
+                            cursor:"pointer",
+                            transition:"all 0.2s ease-in-out",
+                            boxShadow:"0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -1px rgba(0, 0, 0, 0.2)"
+                         }}
+                         onClick={(e)=>{handleLeaveMeeting()}}
+                         onMouseEnter={(e) => {
+                            e.currentTarget.style.backgroundColor = "rgba(220, 38, 38, 1)";
+                            e.currentTarget.style.transform = "scale(1.05)";
+                            e.currentTarget.style.boxShadow = "0 6px 8px -1px rgba(0, 0, 0, 0.4), 0 4px 6px -1px rgba(0, 0, 0, 0.3)";
+                         }}
+                         onMouseLeave={(e) => {
+                            e.currentTarget.style.backgroundColor = "rgba(239, 68, 68, 0.9)";
+                            e.currentTarget.style.transform = "scale(1)";
+                            e.currentTarget.style.boxShadow = "0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -1px rgba(0, 0, 0, 0.2)";
+                         }}
+                         >
+                            <PhoneOff size={20} />
+                         </button>
+                    </div>
+                </div>
+
+            </>
+        }
+    </>
 }

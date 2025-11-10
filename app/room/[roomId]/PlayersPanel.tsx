@@ -4,18 +4,25 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useUser } from '@clerk/nextjs'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
-import { getAllPlayers, getSelfId } from '@/game/realtime/PlayerRealtime'
+import { getAllPlayers, getSelfId,sendCallNotification,registerSetShowCallNotification,registerSetCallerName,setCurrentStateStream
+		 ,currentState,setCurrentStateInfo,registerSetMyStreamCaller,RTCCallerEventEmitter
+		} from '@/game/realtime/PlayerRealtime'
 import { Users2, MessageSquareText, Video, ChevronRight, ChevronLeft } from "lucide-react"
 import TextChat from './TextChat'
 import { getWhiteboardOpen } from '@/game/whiteboardState'
+import DraggableVideo from './DraggableVideo'
 import LeaveRoomButton from './LeaveRoomButton'
 
 type PlayerInfo = { id: string; name?: string; character?: string; avatar?: string }
 
-export default function PlayersPanel() {
+export default function PlayersPanel(prop:{inMeeting:boolean,setInMeeting:React.Dispatch<React.SetStateAction<boolean>>}) {
 	const [players, setPlayers] = useState<PlayerInfo[]>([])
 	const [activeTab, setActiveTab] = useState<'participants' | 'chat'>('participants')
 	const [isWhiteboardOpen, setIsWhiteboardOpen] = useState(false)
+	const [isCallNotification,setIsCallNotification]=useState<boolean>(false);
+	const [callerInfo,setCallerInfo]=useState<{name:string,id:string} | null>(null);
+	const [myStream,setMyStream] = useState<MediaStream | null>(null)
+	const [callerStream,setCallerStream]= useState<MediaStream | null>(null);
 	const [isOpen, setIsOpen] = useState(true)
 	const selfId = getSelfId()
 	const { user } = useUser()
@@ -44,16 +51,68 @@ export default function PlayersPanel() {
 		// Check periodically
 		const interval = setInterval(checkWhiteboardState, 100)
 		
-		return () => clearInterval(interval)
+		registerSetShowCallNotification(setIsCallNotification);
+		registerSetCallerName(setCallerInfo);
+		registerSetMyStreamCaller(setMyStream)
+		RTCCallerEventEmitter.removeAllListeners("onCallerTrack")
+		const handleCallerTrack = (track: MediaStreamTrack) => {
+			setCallerStream((prev) => {
+				if (!prev) {
+					return new MediaStream([track]);
+				}
+				
+				const existingTrack = prev.getTracks().find(t => t.id === track.id);
+				if (existingTrack) {
+					return prev; 
+				}
+				
+				const newStream = new MediaStream();
+				prev.getTracks().forEach(t => newStream.addTrack(t));
+				newStream.addTrack(track);
+				return newStream;
+			});
+		};
+		RTCCallerEventEmitter.on("onCallerTrack", handleCallerTrack);
+		return () => {
+			clearInterval(interval);
+			registerSetShowCallNotification(null);
+			registerSetCallerName(null);
+			registerSetMyStreamCaller(null)
+			RTCCallerEventEmitter.removeAllListeners("onCallerTrack");
+			setCallerStream(null);
+			setMyStream(null)
+		}
 	}, [])
-
+	
 	// Show max 5 avatars, collapse extras into "+N" avatar
 	const maxVisible = 5
 	const visiblePlayers = useMemo(() => players.slice(0, maxVisible), [players])
 	const extraCount = useMemo(() => Math.max(0, players.length - maxVisible), [players])
 
 // Call button intentionally does nothing for now
-const onCall = useCallback(() => {}, [])
+const onCall = useCallback((id:string) => {
+	sendCallNotification(id);
+}, [])
+
+const handleAcceptCall = useCallback(async() => {
+	setIsCallNotification(false);
+	const newStream =await navigator.mediaDevices.getUserMedia({video:true,audio:true});
+	setMyStream(newStream);
+	await setCurrentStateStream(newStream);
+	// Empty handler as requested
+}, [])
+const handleLeaveCall= useCallback(async ()=>{
+
+	setCallerStream(null);
+	setCallerInfo(null);
+	setCurrentStateInfo(null)
+},[])
+const handleRejectCall = useCallback(() => {
+	setIsCallNotification(false);
+	setCurrentStateInfo(null)
+	setCallerInfo(null);
+	setCallerStream(null)
+}, [])
 
 	// Don't render when whiteboard is open
 	if (isWhiteboardOpen) {
@@ -62,6 +121,90 @@ const onCall = useCallback(() => {}, [])
 
 	return (
 		<>
+		{/* Draggable Video for Caller Stream */}
+		{callerStream && (
+			<DraggableVideo stream={callerStream} onLeaveCall={handleLeaveCall} />
+		)}
+		
+		{/* Call Notification */}
+		{isCallNotification && callerInfo && (
+			<div style={{
+				position:"fixed",
+				top:"2rem",
+				right:"2rem",
+				zIndex:2000,
+				padding:"1.25rem",
+				backgroundColor:"rgba(15, 23, 42, 0.95)",
+				backdropFilter:"blur(8px)",
+				borderRadius:"0.75rem",
+				border:"1px solid rgba(148, 163, 184, 0.15)",
+				boxShadow:"0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5)",
+				minWidth:"320px",
+				maxWidth:"400px"
+			}}>
+				<div style={{
+					display:"flex",
+					flexDirection:"column",
+					gap:"1rem"
+				}}>
+					<p style={{
+						color:"rgba(241, 245, 249, 0.95)",
+						fontSize:"0.875rem",
+						margin:0
+					}}>
+						You have been called by {callerInfo.name}
+					</p>
+					<div style={{
+						display:"flex",
+						gap:"0.75rem",
+						justifyContent:"flex-end"
+					}}>
+						<button
+							onClick={handleRejectCall}
+							style={{
+								padding:"0.5rem 1rem",
+								backgroundColor:"rgba(71, 85, 105, 0.6)",
+								color:"rgba(241, 245, 249, 0.9)",
+								border:"1px solid rgba(148, 163, 184, 0.2)",
+								borderRadius:"0.5rem",
+								fontSize:"0.875rem",
+								fontWeight:"500",
+								cursor:"pointer",
+								transition:"all 0.2s ease-in-out"
+							}}
+							onMouseEnter={(e) => {
+								e.currentTarget.style.backgroundColor = "rgba(71, 85, 105, 0.8)";
+							}}
+							onMouseLeave={(e) => {
+								e.currentTarget.style.backgroundColor = "rgba(71, 85, 105, 0.6)";
+							}}
+						>Reject</button>
+						<button
+							onClick={()=>{handleAcceptCall()}}
+							style={{
+								padding:"0.5rem 1rem",
+								backgroundColor:"rgba(99, 102, 241, 0.8)",
+								color:"white",
+								border:"none",
+								borderRadius:"0.5rem",
+								fontSize:"0.875rem",
+								fontWeight:"500",
+								cursor:"pointer",
+								transition:"all 0.2s ease-in-out"
+							}}
+							onMouseEnter={(e) => {
+								e.currentTarget.style.backgroundColor = "rgba(99, 102, 241, 1)";
+								e.currentTarget.style.transform = "scale(1.05)";
+							}}
+							onMouseLeave={(e) => {
+								e.currentTarget.style.backgroundColor = "rgba(99, 102, 241, 0.8)";
+								e.currentTarget.style.transform = "scale(1)";
+							}}
+						>Accept</button>
+					</div>
+				</div>
+			</div>
+		)}
 		<button
 		onClick={() => setIsOpen(o => !o)}
 		className={`fixed right-0 top-1/2 -translate-y-1/2 z-[60]
@@ -165,7 +308,7 @@ const onCall = useCallback(() => {}, [])
 											</div>
 											<div>
 												<button
-													onClick={onCall}
+													onClick={()=>{onCall(p.id)}}
 													disabled={isCurrentUser}
 													className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-semibold border shadow-sm transition transform active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-offset-0 ${isCurrentUser ? 'opacity-60 cursor-not-allowed border-slate-200 text-slate-400 bg-slate-50' : 'cursor-pointer border-violet-400 text-violet-900 bg-gradient-to-r from-violet-50 to-violet-100 hover:from-violet-100 hover:to-violet-200 hover:border-violet-500 shadow-violet-100/60 focus:ring-violet-300/40'}`}
 												>

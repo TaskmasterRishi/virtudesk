@@ -11,9 +11,10 @@
 import { RealtimeChannel } from "@supabase/supabase-js";
 import { supabase } from "@/utils/supabase/client";
 import { Dispatch, SetStateAction, useCallback } from "react";
-import { off } from "process";
 import { EventEmitter } from 'events';
-import Stream from "stream";
+
+import { off } from "process";
+import { TruckElectric } from "lucide-react";
 import { error } from "console";
 
 if (typeof window !== "undefined") {
@@ -24,101 +25,6 @@ if (typeof window !== "undefined") {
   await destroyRealtime();
  })
 }
-let MODE:string
-export function setMODE(m:string){
-  MODE=m
-  if(m === 'meeting'){
-    // Send meeting-meta to everyone (like joining a room)
-    safeSend("meeting-meta", { from: playerIdRef });
-  }
-}
-
-// Meeting participants management
-let meetingParticipants: MediaComponentTtype[] = [];
-
-export function setMeetingParticipants(participants: MediaComponentTtype[]) {
-  meetingParticipants = participants;
-}
-
-export function getMeetingParticipants(): MediaComponentTtype[] {
-  return meetingParticipants;
-}
-
-// Meeting functionality
-// let meetingModeRef = false;
-// let meetingParticipantsRef = new Set<string>();
-
-
-export async function startMeeting(setStream:Dispatch<SetStateAction<MediaStream | undefined>>) {
-   closeAllPeerConnections();
- 
-  
-  // Close all existing peer connections
-  
-  // Get new stream with video and audio for meeting
-  try {
-    const meetingStream = await navigator.mediaDevices.getUserMedia({
-      video: true,
-      audio: true
-    });
-    
-    // Set the new stream
-    setSTREAM(meetingStream);
-    setStream(meetingStream);
-    // Set mode to meeting (this will trigger meeting-meta request)
-    setMODE('meeting');
-    
-    // Notify everyone to join meeting
-    safeSend("meeting-invite", { 
-      from: playerIdRef, 
-      meetingId: `meeting_${Date.now()}`,
-      initiator: playerIdRef 
-    });
-  } catch (error) {
-    console.error("Failed to get meeting stream:", error);
-  }
-}
-
-export async function joinMeeting(setStream:Dispatch<SetStateAction<MediaStream | undefined>>) {
-  closeAllPeerConnections();
-
-   
-    
-    // Close all existing peer connections
-    
-    // Get new stream with video and audio for meeting
-    try {
-      const meetingStream = await navigator.mediaDevices.getUserMedia({
-        video: true,
-        audio: true
-      });
-      
-      // Set the new stream
-      setSTREAM(meetingStream);
-      setStream(meetingStream)
-      // Set mode to meeting (this will trigger meeting-meta request)
-      setMODE('meeting');
-      
-      // Send meeting join signal
-      
-    } catch (error) {
-      console.error("Failed to get meeting stream:", error);
-    }
-  
-}
-
-
-export function leaveMeeting() {
-  
-  
-  // Send leave signal
-  safeSend("meeting-leave", { from: playerIdRef });
-  
-  // Close all existing connections
-  closeAllPeerConnections();
-}
-
-
 
 
 
@@ -128,6 +34,7 @@ export type PlayerMeta = {
   character?: string;
   avatar?: string;
 };
+
 
 export type PlayerPosPayload = {
   userId: string;
@@ -192,45 +99,291 @@ export type MediaComponentTtype={
   track:MediaStream
   from:string,
 }
-export const RTCEventEmitter=new EventEmitter()
+export type dataChannelStatusType={
+  muted:boolean,
+  mode:ModeType
+}
 
-export function setMediaElement(setState:Dispatch<SetStateAction<{
-track: MediaStream;
-    from: string;
-}[]>>,mode:string){
-  console.log("called setmediaelement")
+export const MODE={
+  "PROXIMITY":0,
+  "MEETING":1 
+}
+export type ModeType = typeof MODE[keyof typeof MODE]
 
-  console.log("onTrack listner added")
-  RTCEventEmitter.on("onTrack in "+mode,(t:MediaStream,f:string)=>{
-    console.log("inside the rtceventemnitter ontrack")
-    setState((prev)=>{
-      for(let a of prev){
-        if(a.from==f){
-          return prev;
-        }
-      }
-      const ans=[...prev]
-      ans.push({track:t,from:f})
-      return ans
-    })
-  })
-  
-  if(RTCEventEmitter.listenerCount("onClose in "+mode)===0){
-  RTCEventEmitter.on("onClose in "+mode,(f:string)=>{
-    setState((prev)=>{
-      const ans=prev.filter((participant)=>{return participant.from!==f})
-      
-      return ans;
-    })
-  })
+export type participantType={
+  id:string,
+  mode:ModeType,
+  stream:MediaStream | null
+}
+class ParticipantState{
+  mode:ModeType
+  stream:MediaStream | null
+  initialOfferState:boolean
+  name:string | null
+  callStream:MediaStream | null;
+  callerName:null | string
+  callerId:null | string
+  callerService:null | CallerService
+  constructor(){
+    this.mode=MODE.PROXIMITY
+    this.stream=null
+    this.initialOfferState=false
+    this.name=null
+    this.callStream=null
+    this.callerName=null
+    this.callerId=null
+    this.callerService=null
   }
 }
-
-
-
-export function removeMediaElement(from:string){
-  RTCEventEmitter.emit("onClose",from)
+export const currentState=new ParticipantState()
+export function setCurrentStateName(n:string){
+  currentState.name=n
 }
+export function setModeState(a:ModeType=currentState.mode){
+  currentState.mode=a;
+  for( const [key,value] of peersConnections){
+    const Peer:PeerService=value
+    const ch=Peer.dataChannels.get("mode");
+    
+  }
+}
+export function setStreamState(s:MediaStream){
+  currentState.stream=s;
+}
+let setMode:null | React.Dispatch<React.SetStateAction<number>>=null
+let setParticipants:null | React.Dispatch<React.SetStateAction<participantType[]>>=null;
+let setUserNames:null | React.Dispatch<React.SetStateAction<{
+    [id: string]: string;
+}>>
+let setIsMeeting:null | React.Dispatch<React.SetStateAction<boolean>> =null
+let setShowInviteNotification:null | React.Dispatch<React.SetStateAction<boolean>> =null
+let setShowCallNotification:null | React.Dispatch<React.SetStateAction<boolean>> =null
+let setCallerName:null | React.Dispatch<React.SetStateAction<{name:string,id:string} | null>> =null
+
+
+export function registerSetMode(setState:null | React.Dispatch<React.SetStateAction<number>>){
+  setMode=setState
+}
+export function registerSetParticipants(setState:null | React.Dispatch<React.SetStateAction<participantType[]>>){
+  setParticipants=setState
+}
+export function registerSetUserNames(setState:null | React.Dispatch<React.SetStateAction<{
+    [id: string]: string;
+}>>){
+  setUserNames=setState
+}
+export function registerSetIsMeeting(setState:null | React.Dispatch<React.SetStateAction<boolean>>){
+  setIsMeeting=setState
+}
+export function registerSetShowInviteNotification(setState:null | React.Dispatch<React.SetStateAction<boolean>>){
+  setShowInviteNotification=setState
+}
+export function registerSetShowCallNotification(setState:null | React.Dispatch<React.SetStateAction<boolean>>){
+  setShowCallNotification=setState
+}
+export function registerSetCallerName(setState:null | React.Dispatch<React.SetStateAction<{name:string,id:string} | null>>){
+  setCallerName=setState
+}
+export type PlayerInfo = { id: string; name?: string; character?: string; avatar?: string,mode?:ModeType }
+
+export const RTCCallerEventEmitter = new EventEmitter();
+class CallerService{
+  name:null | string
+  id:string | null
+  queue:any[] 
+  peer:RTCPeerConnection
+  state:boolean
+  constructor(id:string,name:string){
+    this.name=name;
+    this.id=id;
+    this.queue=[];
+    this.peer= new RTCPeerConnection();
+    this.state=false
+
+    this.peer.onicecandidate=(e)=>{
+         if(!e.candidate){return}
+    
+         channel?.send({type:"broadcast",event:"Caller-Webrtc-ICE",payload:{from:playerIdRef,to:currentState.callerId,ICE:JSON.stringify(e.candidate)}})
+    }
+      this.peer.ontrack=(event)=>{
+        console.log("peer ontrack event in CallerService:\n\n",event)
+        
+        
+          RTCCallerEventEmitter.emit("onCallerTrack",event.track)
+      
+       
+      }
+  }
+  async getOffer(){
+
+    const offer = await this.peer.createOffer();
+    await this.peer.setLocalDescription(offer)
+    return offer;
+  }
+  async getAnswer(o:RTCSessionDescriptionInit){
+    // Validate the offer before using it
+    if (!o || !o.type || !o.sdp) {
+      throw new Error("Invalid offer: missing type or sdp");
+    }
+    
+    const offer = new RTCSessionDescription({
+      type: o.type,
+      sdp: o.sdp
+    });
+    
+    await this.peer.setRemoteDescription(offer);
+    const answer = await this.peer.createAnswer();
+    await this.peer.setLocalDescription(answer);
+    
+    this.state=true
+      this.queue.forEach(async (ICE)=>{
+        try{
+        await this.peer?.addIceCandidate(new RTCIceCandidate(ICE))
+        }catch(e){console.error("Problem occured while addinf ICE in CallerService")}
+      })
+      this.queue=[]
+
+      return answer;
+  }
+    async setLocal(ACK:RTCSessionDescriptionInit){
+    if(this.peer){
+      // Validate the answer before using it
+      if (!ACK || !ACK.type || !ACK.sdp) {
+        throw new Error("Invalid answer: missing type or sdp");
+      }
+      
+      await this.peer.setRemoteDescription(new RTCSessionDescription({
+        type: ACK.type,
+        sdp: ACK.sdp
+      }))
+      this.state=true
+      this.queue.forEach(async (ICE)=>{
+         try{
+          await this.peer?.addIceCandidate(new RTCIceCandidate(ICE))
+            console.log("ICE actually added")
+          }catch(e){console.error("Problem occured while addinf ICE")}
+      })
+      this.queue=[]
+    }
+  }
+  async addICECandidates(ICE:RTCIceCandidate){
+    if(!this.state){
+      this.queue.push(ICE)
+    }
+    else{
+      try{
+      await this.peer.addIceCandidate(new RTCIceCandidate(ICE))
+      console.log("ICE actually added")
+      }catch(e){console.error("Problem occured while addinf ICE")}
+
+    }
+    
+  }
+  close(){
+    this.peer.getSenders().forEach((s)=>{s.track?.stop()})
+    this.peer.close()
+  }
+}
+let setMyStreamCaller:Dispatch<SetStateAction<MediaStream | null>> | null=null;
+export function  registerSetMyStreamCaller(setState:Dispatch<SetStateAction<MediaStream | null>> | null){
+  setMyStreamCaller=setState;
+}
+export async function setCurrentStateStream(s:MediaStream){
+  currentState.callStream=s;
+  currentState.callerService=new CallerService(currentState.callerId!,currentState.callerName!);
+  const Peer=currentState.callerService;
+  s.getTracks().forEach((t)=>{Peer.peer.addTrack(t,s)});
+  const offer = await Peer.getOffer();
+
+  channel?.send({type:"broadcast",event:"Call-Accepted",payload:{from:playerIdRef,to:currentState.callerId,name:currentState.name,sdp:offer}})
+}
+export const RTCEventEmitter=new EventEmitter();
+
+
+function onModeDataChannelMessage(a:string,obj:PeerService){
+  
+    
+     const myData=JSON.parse(a) as {mode:ModeType}
+      obj.mode=myData.mode
+      if(setParticipants){
+        setParticipants((prev)=>{
+          let IsPresent=false;
+          prev.forEach((p)=>{
+            if(p.id===obj.from){
+              p.mode=myData.mode;
+              IsPresent=true
+            }
+          });
+          
+            return [...prev];
+         
+        })
+      }else{throw new Error("setparticipants not defined yet")}
+  
+}
+let userNameState=false;
+let pendingFunction:string | null=null
+export function broadCastUserNames(n:string){
+ 
+    if(!userNameState){
+      userNameState=true
+    }
+    else{
+      pendingFunction=n
+    } 
+}
+export function broadcastMeetingState(a:boolean){
+  channel?.send({type:"broadcast",event:"meetingChange",payload:{flag:a}})
+}
+export function handleMute(flag:boolean){
+  for(const [key,value] of peersConnections){
+    const Peer=value;
+    if(Peer.mode===MODE.MEETING){
+      Peer.peer?.getSenders().forEach((s)=>{
+        if(s.track && s.track.kind === "audio"){
+          s.track.enabled=!flag;
+        }
+      })
+    }
+  }
+}
+// Invite notification functions
+export function sendMeetingInvite(to: string) {
+  if (!channel || !playerIdRef) return;
+  channel.send({
+    type: "broadcast",
+    event: "meeting-invite",
+    payload: {
+      from: playerIdRef,
+      to: to
+    }
+  });
+}
+export function setCurrentStateInfo(a:null){
+  
+    currentState.callStream=null;
+    currentState.callerId=null;
+    currentState.callerName=null;
+    currentState.callerService=null;
+    
+ 
+}
+
+export function sendCallNotification(to: string) {
+  if (!channel || !playerIdRef) return;
+  const callerName = currentState.name || "Someone";
+  channel.send({
+    type: "broadcast",
+    event: "call-notification",
+    payload: {
+      from: playerIdRef,
+      to: to,
+      callerName: callerName,
+      callerId: playerIdRef
+    }
+  });
+}
+
 type RTCBroadcastType={
     from:string | null,
     to:string,
@@ -242,23 +395,27 @@ type ICEBroadcastType={
   ICE:string
 }
 
-let STREAM:MediaStream|null=null;
-export function nullifySTREAM(){
-  STREAM=null
-}
 class PeerService{
   peer:undefined|RTCPeerConnection
   queue:any[]
   state:boolean
   senders:(RTCRtpSender|undefined)[]
   targetId:string
-  constructor(from:string){
+  mode:ModeType
+  from:string
+  name:string | null
+  dataChannels:Map<string,RTCDataChannel>
+  trackState:boolean
+  constructor(from:string,m:ModeType){
+    this.from=from
     this.targetId = from
     this.senders=[]
     this.queue=[]
     this.state=false
-    let myHostname="localhost"
-    if(window){myHostname=window.location.hostname}
+    this.mode=m
+    this.dataChannels=new Map<string,RTCDataChannel>()
+    this.name=null
+    this.trackState=false
     if(!this.peer){
       this.peer=new RTCPeerConnection({
       
@@ -273,12 +430,25 @@ class PeerService{
       ]
       
     });
-      
-      if(STREAM){
-        STREAM.getTracks().forEach((track)=>{this.senders.push(this.peer?.addTrack(track,STREAM!))})
-       
-      }else{console.error("STREAM is not defined")}
+      this.peer.ondatachannel=(e)=>{
+        const ch:RTCDataChannel=e.channel;
 
+        if(ch.label==="mode"){
+          this.dataChannels.set("mode",ch)
+          ch.onmessage=(e)=>{
+            onModeDataChannelMessage(e.data,this)
+           
+          }
+        }
+        else if(ch.label==="mute"){
+          this.dataChannels.set("mute",ch)
+          ch.onmessage=(e)=>{
+
+          }
+        }
+        
+
+      }
       this.peer.onicecandidate=(e)=>{
          if(!e.candidate){return}
          if(!from){
@@ -290,37 +460,53 @@ class PeerService{
          channel?.send({type:"broadcast",event:"webrtc-ICE",payload:{from:playerIdRef,to:from,ICE:JSON.stringify(e.candidate)}})
       }
       this.peer.ontrack=(event)=>{
-
-        RTCEventEmitter.emit("onTrack in "+MODE,event.streams[0],from)
-       console.log("peer ontrack event",event)
+        console.log("peer ontrack event:\n\n",event)
+        if(!currentState.stream){throw new Error("CurrentState.stream not defined in peer.ontrack EventListner")}
+        if(this.mode===MODE.MEETING){
+          RTCEventEmitter.emit("onMeetingTrack",this.from,event.track,this.mode,this.trackState)
+          this.trackState=!this.trackState;
+        }
+        else{
+          RTCEventEmitter.emit("onTrack",this.from,event.track,this.mode)  
+        }
       }
     }
   }
   async getOffer(){
     if(this.peer){
-      if(STREAM){
-         this.senders.forEach((sender)=>{this.peer?.removeTrack(sender!)})
-        this.senders=[]
-        STREAM.getTracks().forEach((track)=>{this.senders.push(this.peer?.addTrack(track,STREAM!))})
+      if(this.dataChannels.size===0){
+        const d1=this.peer.createDataChannel("mode")
+        const d2=this.peer.createDataChannel("mute")
+        
+        d1.onmessage=(e)=>{
+           onModeDataChannelMessage(e.data,this)
+        }
+        d2.onmessage=(e)=>{}
        
-      }else{console.error("STREAM is not defined")}
+        this.dataChannels.set("mode",d1)
+        this.dataChannels.set("mute",d2)
+        
+      }
       const offer=await this.peer.createOffer()
       await this.peer.setLocalDescription(new RTCSessionDescription(offer))
       return offer
     }
   }
   async getAnswer(offer:RTCSessionDescriptionInit){
-    if(this.peer){
-      await this.peer.setRemoteDescription(new RTCSessionDescription(offer))
-      if(STREAM){
-        this.senders.forEach((sender)=>{this.peer?.removeTrack(sender!)})
-        this.senders=[]
-        STREAM.getTracks().forEach((track)=>{this.peer?.addTrack(track,STREAM!)})
 
-      }else{console.error("STREAM is not defined")}
+    if(this.peer){
+
+      this.peer.getSenders().forEach((sender)=>{this.peer?.removeTrack(sender)});
+      if(!currentState.stream){throw new Error("stream not defined in getAnswer method of PeerService")}
+      currentState.stream.getTracks().forEach((track)=>{
+        this.peer?.addTrack(track,currentState.stream!)
+      })
+
+      await this.peer.setRemoteDescription(new RTCSessionDescription(offer))
+
       const answer=await this.peer.createAnswer();
       await this.peer.setLocalDescription(new RTCSessionDescription(answer))
-        this.state=true
+      this.state=true
       this.queue.forEach(async (ICE)=>{
         try{
         await this.peer?.addIceCandidate(new RTCIceCandidate(ICE))
@@ -359,22 +545,61 @@ class PeerService{
     
   }
   close(){
+    this.peer?.getSenders().forEach((s)=>{s.track?.stop()})
     this.peer?.close()
   }
 }
 
 const peersConnections=new Map<string,PeerService>()
 
-// Helper functions for meeting mode
-function closeAllPeerConnections() {
-  console.log("Closing all peer connections for meeting mode");
-  peersConnections.forEach((peerService, playerId) => {
-    peerService.close();
-  });
-  peersConnections.clear();
+export async function renegotiate(s:MediaStream,m:ModeType){
+  for(let [key,value] of peersConnections){
+    const Peer=value;
+    const senders=Peer.peer?.getSenders()
+    senders?.forEach((s)=>{Peer.peer?.removeTrack(s)})
+    s.getTracks().forEach((t)=>{Peer.peer?.addTrack(t,s)})
+    const offer=await Peer.getOffer();
+    if(offer){
+      channel?.send({type:"broadcast",event:"renegotiation-initials",payload:{from:playerIdRef,to:Peer.from,sdp:offer,mode:m}})
+    }
+    else{console.error("problem creating offer")}
+  }
+  
 }
 
+export async function createInitialOffer(participantId:string){
+  
+  if(currentState.stream){
+    const Peer=peersConnections.get(participantId)
+      if(Peer && Peer.mode==MODE.PROXIMITY){
+      if(!currentState.stream){throw new Error('currentState stream is NULL in  createInitialOffer')}
+      currentState.stream.getTracks().forEach((track)=>{
+        if(!currentState.stream){throw new Error('currentState stream is NULL in createInitialOffer')}
+        Peer.peer?.addTrack(track,currentState.stream)
+      })
+    
+        const offer= await Peer.getOffer()
+        if(offer){
+          channel?.send({type:"broadcast",event:"webrtc-initials",payload:{from:playerIdRef,to:Peer.from,sdp:offer}})
+        }
+        else{throw new Error("offer not defined in createInitialOffer method")}
+    }else{
+      if(!Peer){
+        throw new Error("Peer is not defined in createInitialOffer")
+      }
+    }
+  }
+else{throw new Error('currentState stream is NULL in createInitialOffer')}
+}
 
+export function broadcastModeChange(m:ModeType){
+  
+    for(const [key,value] of peersConnections){
+      const Peer:PeerService=value;
+      Peer.dataChannels.get("mode")?.send(JSON.stringify({mode:m})) 
+    }
+  
+}
 
 
 
@@ -432,83 +657,185 @@ export async function initRealtime(opts: {
 
 // WebRTC related
 
+
+channel.on("broadcast", { event: "Call-Accepted" }, async ({ payload }) => {
+const data = payload as { from: string; to: string; name:string ,sdp?:RTCSessionDescriptionInit, offer?:RTCSessionDescriptionInit};
+
+  if (!data.from || data.from === playerIdRef) return;
+  if (data.to === playerIdRef) {
+    currentState.callerId=data.from;
+    currentState.callerName=data.name;
+    currentState.callerService=new CallerService(data.from,data.name);
+    const newStream=await navigator.mediaDevices.getUserMedia({video:true,audio:true})
+    setMyStreamCaller!(newStream);
+    const Peer=currentState.callerService;
+    newStream.getTracks().forEach((t)=>{Peer.peer.addTrack(t,newStream)});
+    
+    // Handle both 'offer' and 'sdp' field names for compatibility
+    const offer = data.offer || data.sdp;
+    if (!offer) {
+      console.error("Call-Accepted: Missing offer/sdp in payload");
+      return;
+    }
+    
+    const answer = await Peer.getAnswer(offer);
+    
+    channel?.send({type:"broadcast",event:"Call-Accepted-ACK",payload:{from:playerIdRef,to:currentState.callerId,sdp:answer}})
+  }
+});
+channel.on("broadcast", { event: "Call-Accepted-ACK" }, async ({ payload }) => {
+const data = payload as { from: string; to: string ,answer?:RTCSessionDescriptionInit, sdp?:RTCSessionDescriptionInit};
+
+  if (!data.from || data.from === playerIdRef) return;
+  if (data.to === playerIdRef) {
+    // Handle both 'answer' and 'sdp' field names for backward compatibility
+    const answer = data.answer || data.sdp;
+    if (!answer) {
+      console.error("Call-Accepted-ACK: Missing answer/sdp in payload");
+      return;
+    }
+    
+    await currentState.callerService!.setLocal(answer);
+    
+  }
+});
+channel.on("broadcast", { event: "Caller-Webrtc-ICE" }, async ({ payload }) => {
+const data = payload as { from: string; to: string ,ICE:string};
+
+  if (!data.from || data.from === playerIdRef) return;
+  if (data.to === playerIdRef) {
+    
+    currentState.callerService!.addICECandidates(JSON.parse(data.ICE))
+    
+  }
+});
+
+
+channel.on("broadcast",{event : "onModeChange"},async ({payload})=>{
+  const data=payload as {from:string, mode:ModeType};
+  if(!data.from || data.from===playerIdRef) return ;
+  const Peer = peersConnections.get(data.from);
+  if(!Peer){throw new Error("Peer not defined in recieving Mode change.")}
+  Peer.mode=data.mode
+});
+
+channel.on("broadcast",{event:"onUserName"}, async ({payload})=>{
+  const data = payload as {from:string,name:string};
+  if(!data.from || data.from===playerIdRef){return;}
+  
+  const Peer=peersConnections.get(data.from);
+  if(!Peer){throw new Error("Peer not defined")}
+  Peer.name=data.name;
+  if(!setUserNames){throw new Error("setusername not defioned")}
+  setUserNames((prev)=>{
+  
+      let ans= {...prev}
+      ans[Peer.from]=data.name;
+      return ans;
+    })
+    setParticipants!((p)=>{
+      return [...p]
+    })
+    channel?.send({type: "broadcast",event: "onUserName-ACK",payload: { from: playerIdRef, to: data.from,name:currentState.name}});
+})
+channel.on("broadcast",{event : "onUserName-ACK"},async({payload})=>{
+  const data = payload as {from:string,to:string,name:string}
+  if(!data.from || data.from===playerIdRef){return;}
+  if(data.to!==playerIdRef){return}
+  setUserNames!((prev)=>{
+    let ans={...prev};
+    ans[data.from]=data.name
+    return ans
+  })
+});
+channel.on("broadcast",{event:"meetingChange"},async({payload})=>{
+  const data= payload as {flag:boolean}
+  if(!setIsMeeting){throw new  Error("setIsMeeting not defined")}
+  setIsMeeting(data.flag)
+});
+
+// Meeting invite notifications
+channel.on("broadcast", { event: "meeting-invite" }, async ({ payload }) => {
+  const data = payload as { from: string; to: string };
+  if (!data.from || data.from === playerIdRef) return;
+  if (data.to === playerIdRef) {
+    if(setShowInviteNotification){
+      setShowInviteNotification(true);
+    }
+  }
+});
+
+// Call notifications
+channel.on("broadcast", { event: "call-notification" }, async ({ payload }) => {
+  const data = payload as { from: string; to: string; callerName: string; callerId: string };
+  if (!data.from || data.from === playerIdRef) return;
+  if (data.to === playerIdRef) {
+    if(setShowCallNotification){
+      setShowCallNotification(true);
+    }
+    if(setCallerName){
+      setCallerName({
+        name: data.callerName || "Someone",
+        id: data.callerId || data.from
+      });
+    }
+    currentState.callerName=data.callerName;
+    currentState.callerId=data.callerId;
+  }
+});
+
 channel.on("broadcast", { event: "webrtc-meta" }, async ({ payload }) => {
-  const data = payload as { from: string };
-  console.log("meta received", data);
+  const data = payload as { from: string ,mode:ModeType};
+  
   if (!data.from || data.from === playerIdRef) return;
   
-  
     if (!peersConnections.has(data.from)) {
-      peersConnections.set(data.from, new PeerService(data.from));
+      peersConnections.set(data.from, new PeerService(data.from,data.mode));
+      
+      const Participant:participantType={id:data.from,mode:data.mode,stream:null}
+      RTCEventEmitter.emit("onParticipant",Participant)
     }
+
+setIsMeeting!((prev)=>{
+
+  channel?.send({type:"broadcast",event:"meetingChange",payload:{flag:prev}})
+  return prev;
+})
+
   channel?.send({
     type: "broadcast",
     event: "webrtc-meta-ACK",
-    payload: { from: playerIdRef, to: data.from },
+    payload: { from: playerIdRef, to: data.from,mode:currentState.mode ,name:currentState.name},
   });
 });
 
 channel.on("broadcast", { event: "webrtc-meta-ACK" }, async ({ payload }) => {
-  const data = payload as { from: string; to: string };
-  console.log("meta ACK received", data);
+  const data = payload as { from: string; to: string ,mode:ModeType, name:string};
+  
   if (!data.from || data.from === playerIdRef) return;
   if (data.to === playerIdRef) {
     
     if (!peersConnections.has(data.from)) {
-      peersConnections.set(data.from, new PeerService(data.from));
+      peersConnections.set(data.from, new PeerService(data.from,data.mode));
+
+      const Participant:participantType={id:data.from,mode:data.mode,stream:null}
+      RTCEventEmitter.emit("onParticipant",Participant)
     }
-    
-    // Create offer for the player
-    if (STREAM) {
-      createOffer(STREAM, data.from);
-    }
+    await createInitialOffer(data.from)
   }
 });
 
-// Meeting meta events - similar to webrtc-meta but for meeting participants only
-channel.on("broadcast", { event: "meeting-meta" }, async ({ payload }) => {
-  if(MODE!=="meeting"){return}
-  const data = payload as { from: string };
-  console.log("meeting-meta received from:", data.from);
-  if (!data.from || data.from === playerIdRef) return;
-  
-  // Always respond to meeting-meta (like webrtc-meta)
-  console.log("Responding to meeting-meta from:", data.from);
-  
-  
-  if (!peersConnections.has(data.from)) {
-    peersConnections.set(data.from, new PeerService(data.from));
-  }
-  
-  channel?.send({
-    type: "broadcast",
-    event: "meeting-meta-ACK",
-    payload: { from: playerIdRef, to: data.from },
-  });
-});
 
-channel.on("broadcast", { event: "meeting-meta-ACK" }, async ({ payload }) => {
-  const data = payload as { from: string; to: string };
-  console.log("meeting-meta-ACK received from:", data.from);
+channel.on("broadcast", { event: "renegotiation-initials" }, async ({ payload }) => {
+ const data = payload as { from: string; to: string; sdp: RTCSessionDescriptionInit,mode:ModeType };
+  
   if (!data.from || data.from === playerIdRef) return;
   if (data.to === playerIdRef) {
+    const Peer = peersConnections.get(data.from);
+    const answer = await Peer?.getAnswer(data.sdp);
+    if(currentState.mode!==data.mode){return;}
+    channel?.send({type:"broadcast",event:"webrtc-initials-ACK" ,payload:{from:playerIdRef,to:Peer?.from,sdp:answer,mode:data.mode}})
     
-    // Only create connection if we're in meeting mode
-    if (MODE === 'meeting') {
-      console.log(`Creating meeting connection to: ${data.from}`);
-      
-      
-      if (!peersConnections.has(data.from)) {
-        peersConnections.set(data.from, new PeerService(data.from));
-      }
-      
-      // Create offer for meeting participant
-      if (STREAM) {
-        createOffer(STREAM, data.from);
-      }
-    } else {
-      console.log(`Not in meeting mode, ignoring meeting-meta-ACK from: ${data.from}`);
-    }
   }
 });
 
@@ -525,7 +852,7 @@ channel.on("broadcast", { event: "webrtc-initials" }, async ({ payload }) => {
 });
 
 channel.on("broadcast", { event: "webrtc-initials-ACK" }, ({ payload }) => {
-  const data = payload as { from: string; to: string; sdp: RTCSessionDescriptionInit };
+  const data = payload as { from: string; to: string; sdp: RTCSessionDescriptionInit,mode?:ModeType };
   if (!data.from || data.from === playerIdRef) return;
   if (data.to === playerIdRef) {
     
@@ -533,6 +860,14 @@ channel.on("broadcast", { event: "webrtc-initials-ACK" }, ({ payload }) => {
     Peer?.setLocal(data.sdp);
    
     console.log("ACK recieved:", data.from);
+    if(data.mode){return}
+    if(userNameState){
+
+        channel?.send({type:"broadcast",event:"onUserName",payload:{from:playerIdRef,name:pendingFunction}})
+    }
+    else{
+      userNameState=true;
+    }
   }
 });
 channel.on("broadcast",{event:"webrtc-destroy"},({payload})=>{
@@ -540,7 +875,10 @@ channel.on("broadcast",{event:"webrtc-destroy"},({payload})=>{
   console.log("WebRTC peer destroyed ",data.from)
     peersConnections.get(data.from)?.close()
     peersConnections.delete(data.from)
-    removeMediaElement(data.from)
+    setParticipants!((prev)=>{
+      const ans= prev.filter((p)=>{p.id!==data.from})
+    return ans
+    })
 })
 channel.on("broadcast",{event:"webrtc-ICE"},async ({payload})=>{
   
@@ -575,10 +913,19 @@ channel.on("broadcast",{event:"webrtc-ICE"},async ({payload})=>{
     const myLatestPos = myPosition[myPosition.length - 1];
     const distance = getDistance(myLatestPos, { x: data.x, y: data.y });
   
-    const audioElement = document.getElementById(`PeerAudio${data.playerId}`) as HTMLAudioElement;
-    if (audioElement) {
-      audioElement.muted = distance > PROXIMITY_DISTANCE;
+    
+
+//  add prooximity logic here
+    
+   
+    const element:HTMLMediaElement|null=document.querySelector(".AudioElement"+data.playerId)
+    if(element){
+      element.muted=distance>PROXIMITY_DISTANCE
     }
+    else{
+      
+    }
+
   }
     }
     
@@ -598,50 +945,6 @@ channel.on("broadcast",{event:"webrtc-ICE"},async ({payload})=>{
   
   });
   
-  // Meeting event handlers
-  channel.on("broadcast", { event: "meeting-invite" }, (payload) => {
-    const data = payload.payload as { from: string; meetingId: string; initiator: string };
-    if (!data?.from || data.from === playerIdRef) return;
-    
-    console.log("Received meeting invite from", data.from);
-    
-    // Emit custom event for UI to handle
-    window.dispatchEvent(new CustomEvent('meeting-invite', { 
-      detail: { from: data.from, meetingId: data.meetingId, initiator: data.initiator }
-    }));
-  });
-
-  // channel.on("broadcast", { event: "meeting-join" }, (payload) => {
-  //   const data = payload.payload as { from: string; meetingId: string };
-  //   if (!data?.from || data.from === playerIdRef) return;
-    
-  
-  //   console.log("Player joined meeting:", data.from);
-    
-  //   // If we're already in meeting mode, request meeting meta from the new participant
-  //   if (MODE === 'meeting') {
-  //     console.log(`Requesting meeting meta from new participant: ${data.from}`);
-  //     safeSend("meeting-meta", { from: playerIdRef });
-  //   }
-  // });
-
-
-  channel.on("broadcast", { event: "meeting-leave" }, (payload) => {
-    const data = payload.payload as { from: string };
-    if (!data?.from || data.from === playerIdRef) return;
-    
-    
-    console.log("Player left meeting:", data.from);
-
-    
-    // Close connection to the player who left
-    const peerService = peersConnections.get(data.from);
-    if (peerService) {
-      peerService.close();
-      peersConnections.delete(data.from);
-      console.log(`Closed connection to ${data.from} who left meeting`);
-    }
-  });
   
   // --- Chat messages ---
   channel.on("broadcast", { event: "chat-message" }, (payload) => {
@@ -667,6 +970,8 @@ channel.on("broadcast",{event:"webrtc-ICE"},async ({payload})=>{
       }
       safeSend("meta-req", { from: playerIdRef });
       startSignaling()
+    
+      
     }
   });
   
@@ -713,27 +1018,14 @@ export function sendPosition(x: number, y: number) {
   }
    
 }
-export async function setSTREAM(s:MediaStream) {
-  STREAM=s
-}
-export async function startSignaling() {
-
-  channel?.send({type:"broadcast",event:"webrtc-meta",payload:{from:playerIdRef}})
+export function startSignaling() {
+  if(!currentState.initialOfferState){
+    currentState.initialOfferState=true;
+    return;
+  }
+    
+  channel?.send({type:"broadcast",event:"webrtc-meta",payload:{from:playerIdRef,mode:currentState.mode}})
   console.log("signalinf start")
-}
-export async function createOffer(localStream:MediaStream|undefined=undefined,fromId:string,){
-console.log("called createOffer for:", fromId)
-    
-    const Peer=peersConnections.get(fromId)
-    if (!Peer) {
-      console.log(`No peer connection found for ${fromId}`);
-      return;
-    }
-    
-    const offer = await Peer?.getOffer()
-    if (offer) {
-      channel?.send({type:"broadcast",event:"webrtc-initials",payload:{from:playerIdRef,to:fromId,sdp:offer}})
-    }
 }
 
 export function sendChatMessage(message: string) {
@@ -800,7 +1092,6 @@ export async function destroyRealtime() {
     } catch {}
   }
   channel = null;
-STREAM=null
 
   positionQueues.clear();
   updateSubscribers.clear();
@@ -878,5 +1169,3 @@ export function getAllPlayers(): Array<{ id: string; name?: string; character?: 
 }
 
 export function getSelfId() { return playerIdRef; }
-
-

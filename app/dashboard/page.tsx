@@ -5,6 +5,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useOrganization } from '@clerk/nextjs';
 import { useRoomStore } from '@/app/stores/roomStore';
 import CreateRoomBtn from './_components/CreateRoomBtn';
+import MeetingSummariesDialog from './_components/MeetingSummariesDialog';
 
 export type Rooms = {
   id: string;
@@ -43,21 +44,26 @@ const page = () => {
   }
 
   return (
-    <div className="w-full flex justify-center">
-      <div className="flex flex-wrap justify-start gap-5 w-full">
-        <CreateRoomBtn/>
-        {rooms.map((room, index) => (
-          <RoomCard
-            key={room.id}
-            id={room.id}
-            imageUrl={room.imageUrl}
-            title={room.title}
-            created_at={room.created_at}
-            author_name={room.author_name || ''}
-            org={organization?.name || ''}
-            index={index + 1}
-          />
-        ))}
+    <div className="w-full">
+      <div className="mb-4 flex justify-end">
+        <MeetingSummariesDialog />
+      </div>
+      <div className="w-full flex justify-center">
+        <div className="flex flex-wrap justify-start gap-5 w-full">
+          <CreateRoomBtn/>
+          {rooms.map((room, index) => (
+            <RoomCard
+              key={room.id}
+              id={room.id}
+              imageUrl={room.imageUrl}
+              title={room.title}
+              created_at={room.created_at}
+              author_name={room.author_name || ''}
+              org={organization?.name || ''}
+              index={index + 1}
+            />
+          ))}
+        </div>
       </div>
     </div>
   );
