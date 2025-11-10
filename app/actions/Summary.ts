@@ -123,28 +123,29 @@ export async function stopMeeting(roomId: string): Promise<MeetingSummary | null
     return summary;
 }
 export async function setNewParticipantServerAction(p:participantDataType): Promise<void>{
-    // if(p.id=="notSet"){return}
-    participants.set(p.id,p)
+    if(p.id === "notSet"){
+        console.warn("setNewParticipantServerAction called with 'notSet' ID");
+        return;
+    }
+    console.log(`[${p.id}] Setting new participant at offset: ${p.offset}`);
+    participants.set(p.id, p);
+    console.log(`[${p.id}] Participant set. Total participants: ${participants.size}`);
 }
 export async function setParticipantOffset(a:number): Promise<void>{
 
 }
 export async function setParticipantBlobChunk(id:string,blob:BlobPart): Promise<void>{
     const p = participants.get(id);
-    if(p){
-        p.chunks.push(blob);
-    }
     if (p) {
-    console.log("Chunk size received:", (blob as Blob).size || blob);
-    p.chunks.push(blob);
-  } else {
-    console.warn("No participant found for ID:", id);
-  }
+        const blobSize = (blob as Blob).size || 0;
+        console.log(`[${id}] Chunk size received: ${blobSize} bytes`);
+        p.chunks.push(blob);
+    } else {
+        console.warn(`[${id}] No participant found. Available participants:`, Array.from(participants.keys()));
+    }
 }
 
-export async function removeParticipantServerAction(id:string): Promise<void>{
-    participants.delete(id);
-}
+
 
 /**
  * Converts audio blob to text using AssemblyAI (Free tier: 5 hours/month)
@@ -261,29 +262,57 @@ async function transcribeAudio(audioBlob: Blob): Promise<TranscriptionResult | n
 }
 
 export async function stopRecorder(id:string,t:number): Promise<TranscriptionResult | null> {
-    if(id!=="notSet"){
-        const p= participants.get(id);
-        if(!p){return null}
-        p.isFinished=true
-        p.endedAt=t
-        const blob = new Blob(p.chunks, { type: 'audio/webm' })
-        
-        // Convert audio to text
-        const transcription = await transcribeAudio(blob);
-        
-        // Store transcription with offset
-        if (globalStart !== null) {
-            transcriptions.set(id, {
-                participantId: id,
-                offset: p.offset - globalStart, // Relative to meeting start
-                endedAt: t - globalStart,
-                transcription: transcription,
-            });
-        }
-        
-        return transcription;
+    if(id === "notSet"){
+        console.warn(`[${id}] stopRecorder called with "notSet" ID`);
+        return null;
     }
-    return null;
+    
+    const p = participants.get(id);
+    if(!p){
+        console.error(`[${id}] Participant not found in stopRecorder. Available:`, Array.from(participants.keys()));
+        return null;
+    }
+    
+    if(p.chunks.length === 0){
+        console.warn(`[${id}] No audio chunks recorded for participant`);
+        return null;
+    }
+    
+    console.log(`[${id}] Stopping recorder. Total chunks: ${p.chunks.length}`);
+    p.isFinished = true;
+    p.endedAt = t;
+    
+    const blob = new Blob(p.chunks, { type: 'audio/webm' });
+    console.log(`[${id}] Created blob size: ${blob.size} bytes`);
+    
+    if(blob.size === 0){
+        console.warn(`[${id}] Blob is empty, cannot transcribe`);
+        return null;
+    }
+    
+    // Convert audio to text
+    const transcription = await transcribeAudio(blob);
+    
+    if(!transcription){
+        console.error(`[${id}] Transcription failed`);
+        return null;
+    }
+    
+    console.log(`[${id}] Transcription successful: ${transcription.text.substring(0, 50)}...`);
+    
+    // Store transcription with offset
+    if (globalStart !== null) {
+        transcriptions.set(id, {
+            participantId: id,
+            offset: p.offset - globalStart, // Relative to meeting start
+            endedAt: t - globalStart,
+            transcription: transcription,
+        });
+    } else {
+        console.warn(`[${id}] globalStart is null, cannot store transcription offset`);
+    }
+    
+    return transcription;
 }
 
 /**

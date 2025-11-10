@@ -5,7 +5,7 @@ import { useUser } from '@clerk/nextjs'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { getAllPlayers, getSelfId,sendCallNotification,registerSetShowCallNotification,registerSetCallerName,setCurrentStateStream
-		 ,currentState,setCurrentStateInfo,registerSetMyStreamCaller,RTCCallerEventEmitter
+		 ,currentState,setCurrentStateInfo,registerSetMyStreamCaller,RTCCallerEventEmitter,broadcastCallLeave
 		} from '@/game/realtime/PlayerRealtime'
 import { Users2, MessageSquareText, Video, ChevronRight, ChevronLeft } from "lucide-react"
 import TextChat from './TextChat'
@@ -83,6 +83,13 @@ export default function PlayersPanel(prop:{inMeeting:boolean,setInMeeting:React.
 			setMyStream(null)
 		}
 	}, [])
+	RTCCallerEventEmitter.removeAllListeners("onCallLeave")
+	RTCCallerEventEmitter.on("onCallLeave",()=>{
+	
+		setCallerStream(null);
+	setCallerInfo(null);
+	setCurrentStateInfo(null)
+	})
 	
 	// Show max 5 avatars, collapse extras into "+N" avatar
 	const maxVisible = 5
@@ -103,6 +110,7 @@ const handleAcceptCall = useCallback(async() => {
 }, [])
 const handleLeaveCall= useCallback(async ()=>{
 
+	broadcastCallLeave();
 	setCallerStream(null);
 	setCallerInfo(null);
 	setCurrentStateInfo(null)
