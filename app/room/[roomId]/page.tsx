@@ -13,6 +13,8 @@ import MediaComponent from './MediaComponent';
 import RoomTasksPanel from './TasksPanel';
 import TaskAssignmentNotification from '@/components/TaskAssignmentNotification';
 import { useUser } from '@clerk/nextjs';
+import { useAuth } from '@clerk/nextjs';
+import { useWorkSessionSync } from '@/hooks/useWorkSessionSync';
 import { Button } from '@/components/ui/button';
 import type { CollaborativeWhiteboardProps } from '@/components/CollaborativeWhiteboard';
 import { setWhiteboardOpen } from '@/game/whiteboardState';
@@ -27,10 +29,14 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
   const roomId = unwrappedParams.roomId;
   const [isWhiteboardOpen, setIsWhiteboardOpen] = useState(false);
   const { user } = useUser();
+  const { orgRole } = useAuth();
   const dialogContentRef = useRef<HTMLDivElement>(null);
 
-  // Install AFK detectors
+  const isManager = !!orgRole && (orgRole === 'org:admin' || orgRole === 'admin' || orgRole.includes('admin'));
+
+  // Hooks (they no-op for managers due to internal checks)
   useAFK();
+  useWorkSessionSync();
   const [inMeeting,setInMeeting]=useState(false)
 
   const handleOpenWhiteboard = () => {
@@ -72,8 +78,8 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
 
   return (
     <div className="w-full h-screen relative">
-      <AFKBanner />
-      <AFKToast />
+      {!isManager && <AFKBanner />}
+      {!isManager && <AFKToast />}
       <MediaComponent handleOpenWhiteboard={handleOpenWhiteboard} set={setInMeeting} isWhiteboardOpen={isWhiteboardOpen} roomId={roomId}>
         <CollaborativeWhiteboard
           isOpen={isWhiteboardOpen}
@@ -82,7 +88,7 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
         />
       </MediaComponent>
       <div className="absolute top-4 right-4 z-50 flex flex-col items-end space-y-2">
-        <WorkSessionTimer />
+        {!isManager && <WorkSessionTimer />}
         {/* <LeaveRoomButton /> */}
       </div>
         {inMeeting && !isWhiteboardOpen && <Button style={{position:"absolute",left:"10%",bottom:"5%",zIndex:"10000"}}
@@ -93,7 +99,7 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
           Open Whiteboard
         </Button>}
 
-      <PlayersPanel inMeeting={inMeeting} setInMeeting={setInMeeting} />
+      <PlayersPanel inMeeting={inMeeting} setInMeeting={setInMeeting} roomId={roomId} />
 	  <RoomTasksPanel roomId={roomId} />
 	  <TaskAssignmentNotification />
 

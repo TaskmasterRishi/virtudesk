@@ -12,9 +12,10 @@ type TextChatProps = {
   className?: string
   title?: string
   variant?: 'glass' | 'solid'
+  roomId?: string
 }
 
-export default function TextChat({ embedded = false, className = '', title = 'Room Chat', variant = 'glass' }: TextChatProps) {
+export default function TextChat({ embedded = false, className = '', title = 'Room Chat', variant = 'glass', roomId }: TextChatProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [newMessage, setNewMessage] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -22,12 +23,39 @@ export default function TextChat({ embedded = false, className = '', title = 'Ro
   const inputRef = useRef<HTMLInputElement>(null); // Ref for the input field
   const selfId = getSelfId()
 
+  const storageKey = roomId ? `room-chat-${roomId}` : undefined
+
+  const saveToStorage = useCallback((msgs: ChatMessage[]) => {
+    if (!storageKey) return
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(msgs))
+    } catch {}
+  }, [storageKey])
+
+  const loadFromStorage = useCallback(() => {
+    if (!storageKey) return [] as ChatMessage[]
+    try {
+      const raw = localStorage.getItem(storageKey)
+      if (!raw) return [] as ChatMessage[]
+      const parsed = JSON.parse(raw)
+      if (Array.isArray(parsed)) return parsed as ChatMessage[]
+      return [] as ChatMessage[]
+    } catch { return [] as ChatMessage[] }
+  }, [storageKey])
+
   useEffect(() => {
+    // Load persisted messages for this room on mount
+    const initial = loadFromStorage()
+    if (initial.length > 0) setMessages(initial)
     const off = onChatMessage((message) => {
-      setMessages((prevMessages) => [...prevMessages, message])
+      setMessages((prevMessages) => {
+        const next = [...prevMessages, message]
+        saveToStorage(next)
+        return next
+      })
     })
     return () => off()
-  }, [])
+  }, [loadFromStorage, saveToStorage])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -59,14 +87,17 @@ export default function TextChat({ embedded = false, className = '', title = 'Ro
         message: newMessage,
         timestamp: Date.now(),
       };
-      setMessages((prevMessages) => [...prevMessages, messageToSend]); // Add to local state immediately
+      setMessages((prevMessages) => {
+        const next = [...prevMessages, messageToSend]
+        saveToStorage(next)
+        return next
+      }); // Add to local state immediately
       sendChatMessage(newMessage);
       setNewMessage('');
     }
-  }, [newMessage, selfId]);
+  }, [newMessage, selfId, saveToStorage]);
 
   const handleKeyDown = useCallback((event: React.KeyboardEvent<HTMLInputElement>) => {
-    console.log("Key pressed in chat:", event.key); // Debug log for key presses
     if (event.key === 'Enter') {
       handleSendMessage()
     }

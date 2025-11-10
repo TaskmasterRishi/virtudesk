@@ -12,10 +12,13 @@ import TextChat from './TextChat'
 import { getWhiteboardOpen } from '@/game/whiteboardState'
 import DraggableVideo from './DraggableVideo'
 import LeaveRoomButton from './LeaveRoomButton'
+import { onChatMessage } from '@/game/realtime/PlayerRealtime'
 
 type PlayerInfo = { id: string; name?: string; character?: string; avatar?: string }
 
-export default function PlayersPanel(prop:{inMeeting:boolean,setInMeeting:React.Dispatch<React.SetStateAction<boolean>>}) {
+type PlayersPanelProps = { inMeeting: boolean; setInMeeting: React.Dispatch<React.SetStateAction<boolean>>; roomId: string }
+
+export default function PlayersPanel({ inMeeting, setInMeeting, roomId }: PlayersPanelProps) {
 	const [players, setPlayers] = useState<PlayerInfo[]>([])
 	const [activeTab, setActiveTab] = useState<'participants' | 'chat'>('participants')
 	const [isWhiteboardOpen, setIsWhiteboardOpen] = useState(false)
@@ -24,6 +27,7 @@ export default function PlayersPanel(prop:{inMeeting:boolean,setInMeeting:React.
 	const [myStream,setMyStream] = useState<MediaStream | null>(null)
 	const [callerStream,setCallerStream]= useState<MediaStream | null>(null);
 	const [isOpen, setIsOpen] = useState(true)
+	const [unreadCount, setUnreadCount] = useState(0)
 	const selfId = getSelfId()
 	const { user } = useUser()
 
@@ -38,6 +42,26 @@ export default function PlayersPanel(prop:{inMeeting:boolean,setInMeeting:React.
 		const t = setInterval(refresh, 1000)
 		return () => clearInterval(t)
 	}, [refresh])
+
+	// Unread chat counter
+	useEffect(() => {
+		const off = onChatMessage((message: any) => {
+			// Ignore self messages
+			if (message?.from === selfId) return
+			// Increment only if chat tab not active
+			if (activeTab !== 'chat') {
+				setUnreadCount((c) => Math.min(99, c + 1))
+			}
+		})
+		return () => { off && off() }
+	}, [activeTab, selfId])
+
+	// Reset unread when opening chat
+	useEffect(() => {
+		if (activeTab === 'chat') {
+			setUnreadCount(0)
+		}
+	}, [activeTab])
 
 	// Monitor whiteboard state
 	useEffect(() => {
@@ -292,9 +316,16 @@ const handleRejectCall = useCallback(() => {
 								<Users2 className="w-4 h-4" />
 								<span className="text-sm font-medium">Participants</span>
 							</button>
-							<button onClick={() => setActiveTab('chat')} className={`flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-md border text-xs font-medium transition ${activeTab === 'chat' ? 'bg-slate-100 border-slate-300 text-slate-800' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
+							<button onClick={() => setActiveTab('chat')} className={`relative flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-md border text-xs font-medium transition ${activeTab === 'chat' ? 'bg-slate-100 border-slate-300 text-slate-800' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
 								<MessageSquareText className="w-4 h-4" />
 								<span className="text-sm font-medium">Chat</span>
+								{unreadCount > 0 && (
+									<span 
+										className="ml-2 bg-primary text-primary-foreground text-[10px] font-bold rounded-full min-w-4 h-4 px-1 inline-flex items-center justify-center shadow-lg z-20"
+									>
+										{unreadCount > 99 ? '99+' : unreadCount}
+									</span>
+								)}
 							</button>
 						</div>
 
@@ -331,20 +362,12 @@ const handleRejectCall = useCallback(() => {
 
 							{/* Chat pane (kept mounted) */}
 							<div className={`${activeTab === 'chat' ? 'flex' : 'hidden'} flex-1 overflow-hidden`}>
-								<TextChat embedded title="Room Chat" variant="solid" className="h-full w-full" />
+								<TextChat embedded title="Room Chat" variant="solid" className="h-full w-full" roomId={roomId} />
 							</div>
 						</div>
 						{/* leave room and start meeting button*/}
 						<div className="mt-2 mb-2 grid grid-cols-1 gap-2">
-							{/* <button onClick={() => setActiveTab('participants')} className={`flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-md border text-xs font-medium transition ${activeTab === 'participants' ? 'bg-slate-100 border-slate-300 text-slate-800' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
-								<Video className="w-4 h-4" />
-								<span className="text-sm font-medium">Start Meeting</span>
-							</button> */}
-							{/* <button onClick={() => setActiveTab('chat')} className={`flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-md border text-xs font-medium transition ${activeTab === 'chat' ? 'bg-slate-100 border-slate-300 text-slate-800' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
-								<MessageSquareText className="w-4 h-4" />
-								<span className="text-sm font-medium">Leave Room</span>
-							</button> */}
-							<LeaveRoomButton />
+							<LeaveRoomButton roomId={roomId} />
 						</div>
 					</div>
 				</div>

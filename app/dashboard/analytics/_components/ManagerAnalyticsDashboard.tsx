@@ -129,6 +129,10 @@ export default function ManagerAnalyticsDashboard({ initialData, orgId }: Manage
     return date.toLocaleDateString();
   };
 
+  // Totals based on filtered employeeStats (managers excluded)
+  const totalEmployeesDisplay = employeeStats.length;
+  const activeEmployeesDisplay = employeeStats.filter(e => e.totalTasks > 0).length;
+
   return (
     <div className="min-h-screen">
       <div className="container mx-auto px-6 py-8 max-w-7xl">
@@ -166,9 +170,9 @@ export default function ManagerAnalyticsDashboard({ initialData, orgId }: Manage
             </CardHeader>
             <CardContent>
               <div className="space-y-1">
-                <div className="text-3xl font-bold text-slate-900">{analyticsData.totalEmployees}</div>
+                <div className="text-3xl font-bold text-slate-900">{totalEmployeesDisplay}</div>
                 <p className="text-xs font-medium text-slate-500">
-                  {analyticsData.activeEmployees} active members
+                  {activeEmployeesDisplay} active members
                 </p>
               </div>
             </CardContent>

@@ -1,11 +1,15 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { useAFKStore } from '@/stores/afkStore'
 import { setAFKStatus } from '@/game/realtime/PlayerRealtime'
+import { useUser } from '@clerk/nextjs'
+import { useAuth } from '@clerk/nextjs'
 
 const TWO_MIN = 2  * 60 * 1000
 const FIVE_MIN = 5  * 60 * 1000
 
 export function useAFK() {
+	const { user, isLoaded } = useUser()
+  const { orgRole } = useAuth()
 	const setActiveNow = useAFKStore((s) => s.setActiveNow)
 	const setToastShown = useAFKStore((s) => s.setInactiveToastShown)
 	const setAFKLocal = useAFKStore((s) => s.setAFK)
@@ -56,6 +60,20 @@ export function useAFK() {
 	}, [isAFK, scheduleTimers, setActiveNow, setToastShown, setAFKLocal, resumeTracking])
 
   useEffect(() => {
+    const managerRole = orgRole || ''
+    const isManager = managerRole === 'org:admin' || managerRole === 'admin' || managerRole.includes('admin')
+
+    // Don't start tracking if user is not authenticated, logged out, or is manager
+    if (!isLoaded || !user || isManager) {
+      pauseTracking()
+      stopTracking()
+      clearTimers()
+      setAFKLocal(false)
+      setToastShown(false)
+      setAFKStatus(false)
+      return
+    }
+    
     // User activity events
     const onMouseMove = () => {
       // Do not clear AFK on mere mouse movement when AFK
@@ -115,7 +133,7 @@ export function useAFK() {
       window.removeEventListener('focus', onFocus)
       stopTracking()
     }
-  }, [clearTimers, scheduleTimers, markActive, startTracking, stopTracking, pauseTracking, resumeTracking])
+  }, [clearTimers, scheduleTimers, markActive, startTracking, stopTracking, pauseTracking, resumeTracking, setAFKLocal, setToastShown, isLoaded, user, orgRole])
 
   // Keep timer exactly in sync with AFK status
   useEffect(() => {
