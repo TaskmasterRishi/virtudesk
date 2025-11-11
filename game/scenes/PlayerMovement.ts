@@ -9,6 +9,26 @@ export class PlayerMovement {
     run: string;
   };
 
+  private canPlayAnimation(key?: string): boolean {
+    if (!key || !this.player?.anims?.animationManager) return false;
+    const manager = this.player.anims.animationManager;
+    if (!manager.exists(key)) return false;
+    const anim = manager.get(key);
+    return Boolean(anim && Array.isArray(anim.frames) && anim.frames.length > 0);
+  }
+
+  private tryPlayAnimation(key?: string, ignoreIfPlaying: boolean = true): boolean {
+    if (!key || !this.player?.anims) return false;
+    if (!this.canPlayAnimation(key)) return false;
+    try {
+      this.player.anims.play(key, ignoreIfPlaying);
+      return true;
+    } catch (err) {
+      console.warn(`Failed to play animation ${key}:`, err);
+      return false;
+    }
+  }
+
   constructor(
     public player: any,
     public cursors: any,
@@ -30,10 +50,8 @@ export class PlayerMovement {
     // Disable movement if chat is focused OR whiteboard is open
     if (getChatInputFocus() || getWhiteboardOpen() || getCreateTaskPanelOpen()) {
       this.player.setVelocity(0, 0);
-      if (this.player.anims?.animationManager?.exists(this.animationKeys.idle)) {
-        if (this.player.anims?.currentAnim?.key !== this.animationKeys.idle) {
-          this.player.anims.play(this.animationKeys.idle, true);
-        }
+      if (this.player.anims?.currentAnim?.key !== this.animationKeys.idle) {
+        this.tryPlayAnimation(this.animationKeys.idle, true);
       }
       return;
     }
@@ -62,16 +80,14 @@ export class PlayerMovement {
     const moving = Math.abs(vx) > 0 || Math.abs(vy) > 0;
     if (moving) {
       const running = Math.abs(vx) > 0.9 || Math.abs(vy) > 0.9;
-      const target = running && this.player.anims?.animationManager?.exists(this.animationKeys.run)
+      const target = running && this.canPlayAnimation(this.animationKeys.run)
         ? this.animationKeys.run
-        : (this.player.anims?.animationManager?.exists(this.animationKeys.walk) ? this.animationKeys.walk : undefined);
+        : (this.canPlayAnimation(this.animationKeys.walk) ? this.animationKeys.walk : undefined);
       if (target && this.player.anims?.currentAnim?.key !== target) {
-        this.player.anims.play(target, true);
+        this.tryPlayAnimation(target, true);
       }
-    } else if (this.player.anims?.animationManager?.exists(this.animationKeys.idle)) {
-      if (this.player.anims?.currentAnim?.key !== this.animationKeys.idle) {
-        this.player.anims.play(this.animationKeys.idle, true);
-      }
+    } else if (this.player.anims?.currentAnim?.key !== this.animationKeys.idle) {
+      this.tryPlayAnimation(this.animationKeys.idle, true);
     }
 
     // Face left/right by horizontal velocity

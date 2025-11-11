@@ -172,6 +172,7 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
       const sliceSheet = (imgKey: string, frames: number) => {
         const tex = this.textures.get(imgKey);
         if (!tex) {
+          console.warn(`Texture not found: ${imgKey}`);
           return { frameNames: [] as string[], fw: 0, fh: 0 };
         }
 
@@ -182,22 +183,47 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
             { length: frames },
             (_, i) => `${imgKey}_${i}`
           );
-          return { frameNames: names, fw: 0, fh: 0 };
+          // Verify frames actually exist
+          const validNames = names.filter((n) => {
+            const frame = (tex as any).frames[n];
+            return frame && frame.width > 0 && frame.height > 0;
+          });
+          return { frameNames: validNames, fw: 0, fh: 0 };
         }
 
         const src = tex.getSourceImage() as
           | HTMLImageElement
           | HTMLCanvasElement;
+        if (!src) {
+          console.warn(`Source image not found for texture: ${imgKey}`);
+          return { frameNames: [] as string[], fw: 0, fh: 0 };
+        }
+
         const totalW = (src as any).width as number;
         const totalH = (src as any).height as number;
+        
+        if (!totalW || !totalH || totalW <= 0 || totalH <= 0) {
+          console.warn(`Invalid dimensions for texture: ${imgKey} (${totalW}x${totalH})`);
+          return { frameNames: [] as string[], fw: 0, fh: 0 };
+        }
+
         const frameWidth = Math.floor(totalW / frames);
         const frameHeight = totalH;
+
+        if (frameWidth <= 0) {
+          console.warn(`Invalid frame width for texture: ${imgKey} (frames: ${frames}, width: ${totalW})`);
+          return { frameNames: [] as string[], fw: 0, fh: 0 };
+        }
 
         const names: string[] = [];
         for (let i = 0; i < frames; i++) {
           const name = `${imgKey}_${i}`;
-          tex.add(name, 0, i * frameWidth, 0, frameWidth, frameHeight);
-          names.push(name);
+          try {
+            tex.add(name, 0, i * frameWidth, 0, frameWidth, frameHeight);
+            names.push(name);
+          } catch (e) {
+            console.warn(`Failed to add frame ${name}:`, e);
+          }
         }
         return { frameNames: names, fw: frameWidth, fh: frameHeight };
       };
@@ -216,13 +242,39 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
         names: string[],
         frameRate: number
       ) => {
-        if (this.anims.exists(key) || !names.length) return;
-        this.anims.create({
-          key,
-          frames: names.map((n) => ({ key: imgKey, frame: n })),
-          frameRate,
-          repeat: -1,
+        if (this.anims.exists(key)) return;
+        if (!names.length) {
+          console.warn(`No valid frames for animation: ${key} (texture: ${imgKey})`);
+          return;
+        }
+        
+        // Verify all frames exist before creating animation
+        const tex = this.textures.get(imgKey);
+        if (!tex) {
+          console.warn(`Texture not found when creating animation: ${imgKey}`);
+          return;
+        }
+
+        const validFrames = names.filter((n) => {
+          const frame = (tex as any).frames?.[n];
+          return frame && frame.width > 0 && frame.height > 0;
         });
+
+        if (!validFrames.length) {
+          console.warn(`No valid frames found for animation: ${key}`);
+          return;
+        }
+
+        try {
+          this.anims.create({
+            key,
+            frames: validFrames.map((n) => ({ key: imgKey, frame: n })),
+            frameRate,
+            repeat: -1,
+          });
+        } catch (e) {
+          console.error(`Failed to create animation ${key}:`, e);
+        }
       };
 
       ensureAnim(char.animations.idle, idleKey, idle.frameNames, 6);
@@ -236,22 +288,32 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
 
       const firstFrame = `${char.name}_idle_img_0`;
       this.player = this.physics.add.sprite(x, y, `${char.name}_idle_img`, firstFrame);
-      const scale = ((tileH) / (this.textures.get(`${char.name}_idle_img`)?.getSourceImage() as any)?.height) * 1.5 || 1;
+      // Increase the scale factor here for larger characters:
+      const scaleFactor = 2; // Increased from 1.5 to 2.6 to enlarge characters
+      const originalHeight = (this.textures.get(`${char.name}_idle_img`)?.getSourceImage() as any)?.height;
+      const scale = ((tileH) / originalHeight) * scaleFactor || 1.5;
       this.player.setOrigin(0.5, 0.7).setDepth(10);
       this.player.setScale(scale);
       this.player.setCollideWorldBounds(true);
 
-      const bodySize = Math.min(tileW, tileH) * 0.6;
-      const legExtension = tileH;
-      this.player.body.setSize(bodySize, bodySize + legExtension);
+      const hitboxWidth = tileW *0.2 * scaleFactor;   // wider
+      const hitboxHeight = tileH *1.8 * scaleFactor; // taller
+      this.player.body.setSize(hitboxWidth, hitboxHeight);
 
       this.cameras.main.roundPixels = true;
       this.cameras.main.startFollow(this.player, true, 1, 1);
       this.cameras.main.setFollowOffset(0, 0);
 
-      // Play idle only if animation exists
+      // Play idle only if animation exists and is valid
       if (this.anims.exists(char.animations.idle)) {
-        this.player.anims.play(char.animations.idle);
+        const anim = this.anims.get(char.animations.idle);
+        if (anim && anim.frames && anim.frames.length > 0) {
+          try {
+            this.player.anims.play(char.animations.idle);
+          } catch (e) {
+            console.warn(`Failed to play idle animation:`, e);
+          }
+        }
       }
 
       this.playerMovement = new PlayerMovement(
@@ -307,7 +369,16 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
       if (!s) {
         s = this.add.sprite(x ?? 0, y ?? 0, `${char.name}_idle_img`);
         s.setOrigin(0.5, 0.7).setDepth(9);
-        if (this.player) s.setScale(this.player.scaleX, this.player.scaleY);
+        // Use the same increased scaling for remote players
+        if (this.player) {
+          s.setScale(this.player.scaleX, this.player.scaleY);
+        } else {
+          // fallback: get texture height, mimic local calculation
+          const scaleFactor = 2.6;
+          const originalHeight = (this.textures.get(`${char.name}_idle_img`)?.getSourceImage() as any)?.height;
+          const scale = ((this.tileH) / originalHeight) * scaleFactor || 1.5;
+          s.setScale(scale);
+        }
         this.remotePlayers[userId] = s;
       } else {
         const desiredTex = `${char.name}_idle_img`;
@@ -317,9 +388,16 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
         }
       }
 
-      // Play idle only if animation exists
+      // Play idle only if animation exists and is valid
       if (this.anims.exists(char.animations.idle)) {
-        s.anims.play(char.animations.idle, true);
+        const anim = this.anims.get(char.animations.idle);
+        if (anim && anim.frames && anim.frames.length > 0) {
+          try {
+            s.anims.play(char.animations.idle, true);
+          } catch (e) {
+            console.warn(`Failed to play idle animation for remote player:`, e);
+          }
+        }
       }
 
           // --- REMOTE PLAYER NAME LABEL (HTML OVERLAY) ---
@@ -394,13 +472,27 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
                   ? walk
                   : idle;
               if (target && s.anims?.currentAnim?.key !== target) {
-                s.anims.play(target, true);
+                const anim = this.anims.get(target);
+                if (anim && anim.frames && anim.frames.length > 0) {
+                  try {
+                    s.anims.play(target, true);
+                  } catch (e) {
+                    console.warn(`Failed to play animation ${target} for remote player:`, e);
+                  }
+                }
               }
             } else if (
               this.anims.exists(idle) &&
               s.anims?.currentAnim?.key !== idle
             ) {
-              s.anims.play(idle, true);
+              const anim = this.anims.get(idle);
+              if (anim && anim.frames && anim.frames.length > 0) {
+                try {
+                  s.anims.play(idle, true);
+                } catch (e) {
+                  console.warn(`Failed to play idle animation for remote player:`, e);
+                }
+              }
             }
 
             if (dx !== 0) s.setFlipX(dx < 0);
@@ -443,7 +535,7 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
     }
 
     private setupCameraZoom(mapW: number, mapH: number) {
-      this.cameras.main.setZoom(2.7);
+      this.cameras.main.setZoom(3);
     }
 
     private createMapFromJSON(json: any) {

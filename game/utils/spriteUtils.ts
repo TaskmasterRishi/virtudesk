@@ -16,52 +16,58 @@ export interface CharacterSprite {
 // Available character sprites
 export const AVAILABLE_SPRITES: CharacterSprite[] = [
   {
-    name: 'Pink_Monster',
-    folderPath: '/sprites/char1',  // Back to absolute path
-    image: '/sprites/char1/Pink_Monster.png',
-    idleFrames: 4,
-    walkFrames: 6,
-    runFrames: 6,
+    name: 'Office man',
+    folderPath: '/sprites/person1',  // Back to absolute path
+    image: '/sprites/person1/person1.png',
+    idleFrames: 2,
+    walkFrames: 9,
+    runFrames: 8,
     animations: {
-      idle: 'pink_idle',
-      walk: 'pink_walk',
-      run: 'pink_run'
+      idle: 'idle',
+      walk: 'walk',
+      run: 'run'
     }
   },
   {
-    name: 'Owlet_Monster',
-    folderPath: '/sprites/char2',  // Back to absolute path
-    image: '/sprites/char2/Owlet_Monster.png',
-    idleFrames: 4,
-    walkFrames: 6,
-    runFrames: 6,
+    name: 'Office woman',
+    folderPath: '/sprites/girl1',  // Back to absolute path
+    image: '/sprites/girl1/girl1.png',
+    idleFrames: 2,
+    walkFrames: 9,
+    runFrames: 8,
     animations: {
-      idle: 'owlet_idle',
-      walk: 'owlet_walk',
-      run: 'owlet_run'
+      idle: 'idle',
+      walk: 'walk',
+      run: 'run'
     }
   },
-  {
-    name: 'Dude_Monster',
-    folderPath: '/sprites/char3',  // Back to absolute path
-    image: '/sprites/char3/Dude_Monster.png',
-    idleFrames: 4,
-    walkFrames: 6,
-    runFrames: 6,
-    animations: {
-      idle: 'dude_idle',
-      walk: 'dude_walk',
-      run: 'dude_run'
-    }
-  }
+  
 ];
 
-// Get sprite paths for a character
+// Get sprite sheet paths for a character. Some sprite packs (like the office worker)
+// use generic filenames such as "idle.png", while the others include the character
+// name in the filename. Normalize here so the rest of the game can stay agnostic.
 export function getSpritePaths(character: CharacterSprite) {
+  // Check if animations use generic names (no prefix) - indicates generic filenames
+  const usesGenericFilenames = 
+    character.animations.idle === 'idle' && 
+    character.animations.walk === 'walk' && 
+    character.animations.run === 'run';
+
+  if (usesGenericFilenames) {
+    return {
+      idle: `${character.folderPath}/idle.png`,
+      walk: `${character.folderPath}/walk.png`,
+      run: `${character.folderPath}/run.png`,
+    };
+  }
+
+  // Default pattern: use character name in filename
+  const sanitizedName = character.name.replace(/\s+/g, "_");
   return {
-    idle: `${character.folderPath}/${character.name}_Idle_${character.idleFrames}.png`,
-    walk: `${character.folderPath}/${character.name}_Walk_${character.walkFrames}.png`,
-    run: `${character.folderPath}/${character.name}_Run_${character.runFrames}.png`
+    idle: `${character.folderPath}/${sanitizedName}_Idle_${character.idleFrames}.png`,
+    walk: `${character.folderPath}/${sanitizedName}_Walk_${character.walkFrames}.png`,
+    run: `${character.folderPath}/${sanitizedName}_Run_${character.runFrames}.png`,
   };
 }
 
