@@ -157,6 +157,24 @@ export async function getManagerAnalytics(org_id: string): Promise<ManagerAnalyt
     }
   });
 
+  // Get work session data for all users in the organization
+  const today = new Date();
+  const dateStr = today.toISOString().split('T')[0];
+  
+  const { data: workSessions, error: workSessionsError } = await supabase
+    .from('work_sessions')
+    .select('*')
+    .eq('org_id', org_id)
+    .eq('date', dateStr);
+
+  // Create a map of userId -> work session data
+  const workSessionMap = new Map<string, any>();
+  if (workSessions && !workSessionsError) {
+    workSessions.forEach((ws: any) => {
+      workSessionMap.set(ws.user_id, ws);
+    });
+  }
+
   // Get user details from Clerk (we'll need to fetch this differently)
   // For now, we'll use the user IDs we have and create stats
   const employeeStats: EmployeeStats[] = Array.from(userIds).map(userId => {
@@ -200,12 +218,12 @@ export async function getManagerAnalytics(org_id: string): Promise<ManagerAnalyt
       lastActivity = allActivities.sort().reverse()[0];
     }
 
-    // TODO: Fetch AFK and work time data from database when available
-    // For now, using placeholder values
+    // Fetch AFK and work time data from database
+    const workSession = workSessionMap.get(userId);
     const dailyGoalMs = 8 * 60 * 60 * 1000; // 8 hours
-    const workTimeMs = 0; // Will be fetched from database
-    const isAFK = false; // Will be fetched from database
-    const afkCount = 0; // Will be fetched from database
+    const workTimeMs = workSession?.work_time_ms || 0; // Get from database, default to 0
+    const isAFK = workSession?.is_afk || false; // Get from database, default to false
+    const afkCount = workSession?.afk_count || 0; // Get from database, default to 0
     const remainingTimeMs = Math.max(0, dailyGoalMs - workTimeMs);
     const workTimeCompletionPercent = dailyGoalMs > 0 
       ? Math.round((workTimeMs / dailyGoalMs) * 100) 
