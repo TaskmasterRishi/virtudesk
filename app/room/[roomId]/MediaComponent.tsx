@@ -6,17 +6,15 @@ import {MODE,ModeType,destroyRealtime,participantType,registerSetMode,setModeSta
     } from "../../../game/realtime/PlayerRealtime"
 import { useUser,useAuth } from '@clerk/nextjs';
 import LeaveRoomButton from './LeaveRoomButton';
-import { Button } from "@/components/ui/button";
 import { error } from "console";
 // Math from phaser conflicts with native Math, using native Math directly
-import { Mic, MicOff, PhoneOff } from "lucide-react";
+import { Mic, MicOff, PenSquare, PhoneOff, Video } from "lucide-react";
 import { Span } from "next/dist/trace";
 import {Init , participantDataType,setNewParticipantServerAction,setParticipantBlobChunk,setParticipantOffset,stopMeeting,stopRecorder,type MeetingSummary, saveMeetingSummary
 
 } from "./../../actions/Summary"
 import { set } from "react-hook-form";
 import { CollaborativeWhiteboardProps } from "@/components/CollaborativeWhiteboard";
-import { Video } from "lucide-react";
 
 const CSS:CSSProperties={
     position:"absolute",top:"50%",left:"50%",
@@ -501,9 +499,14 @@ export default function  MediaComponent(props:propType){
             })}
             {userRole!=="member" && !isMeeting && 
              <button
-                className="fixed bottom-24 right-4 z-[1100] inline-flex items-center justify-center rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-md transition-colors hover:bg-indigo-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-1 md:bottom-28 md:right-6"
-                onClick={async(e)=>{await handleStartMeeting()}}
-            >Start Meeting</button>
+             onClick={async (e) => { await handleStartMeeting() }}
+             className={`fixed bottom-24 right-4 z-[1100] flex items-center justify-center gap-1.5 px-10.5 py-2.5 rounded-md border text-xs font-medium transition 
+                 bg-blue-500 border-slate-200 text-white hover:bg-blue-600
+                 disabled:opacity-50 disabled:cursor-not-allowed md:bottom-4 md:right-4 shadow-md`}
+         >
+             <Video className="w-4 h-4" />
+             <span className="text-sm font-medium">Start Meeting</span>
+         </button>
             }
         </>
     }
@@ -522,7 +525,7 @@ export default function  MediaComponent(props:propType){
                             <video 
                                 playsInline
                                 autoPlay
-                                className="MyVideo absolute inset-0 h-full w-full bg-slate-900 object-cover"
+                                className="MyVideo absolute inset-0 h-full w-full bg-slate-900 object-cover scale-x-[-1]"
                                 ref={myVideoRef}
                                 muted
                             ></video>
@@ -535,7 +538,7 @@ export default function  MediaComponent(props:propType){
                                     <video 
                                         playsInline
                                         autoPlay
-                                        className={"absolute inset-0 h-full w-full bg-slate-900 object-cover Vide aoElement"+participant.id}
+                                        className={"absolute inset-0 h-full w-full bg-slate-900 object-cover scale-x-[-1] Vide aoElement"+participant.id}
                                         ref={(element)=>{videoRefs.current[participant.id]=element}}
                                     ></video>
                                 </div>
@@ -690,6 +693,39 @@ export default function  MediaComponent(props:propType){
                         >
                             {isMuted ? <MicOff size={20} /> : <Mic size={20} />}
                         </button>
+                        {!props.isWhiteboardOpen && (
+                            <button
+                                style={{
+                                    width: "3rem",
+                                    height: "3rem",
+                                    borderRadius: "50%",
+                                    backgroundColor: "rgba(59, 130, 246, 0.85)",
+                                    border: "1px solid rgba(37, 99, 235, 0.35)",
+                                    color: "white",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    cursor: "pointer",
+                                    transition: "all 0.2s ease-in-out",
+                                    boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -1px rgba(0, 0, 0, 0.2)"
+                                }}
+                                onClick={props.handleOpenWhiteboard}
+                                onMouseEnter={(e) => {
+                                    e.currentTarget.style.backgroundColor = "rgba(37, 99, 235, 1)";
+                                    e.currentTarget.style.transform = "scale(1.05)";
+                                    e.currentTarget.style.boxShadow = "0 6px 8px -1px rgba(0, 0, 0, 0.35), 0 4px 6px -1px rgba(0, 0, 0, 0.25)";
+                                }}
+                                onMouseLeave={(e) => {
+                                    e.currentTarget.style.backgroundColor = "rgba(59, 130, 246, 0.85)";
+                                    e.currentTarget.style.transform = "scale(1)";
+                                    e.currentTarget.style.boxShadow = "0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -1px rgba(0, 0, 0, 0.2)";
+                                }}
+                                title="Open Whiteboard"
+                                aria-label="Open whiteboard"
+                            >
+                                <PenSquare size={20} />
+                            </button>
+                        )}
                         <button
                          style={{
                             width:"3rem",

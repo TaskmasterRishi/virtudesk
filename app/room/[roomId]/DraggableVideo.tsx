@@ -179,6 +179,7 @@ const DraggableVideo: React.FC<DraggableVideoProps> = ({
           objectFit: "cover",
           display: "block",
           pointerEvents: "none",
+          transform: "scaleX(-1)"
         }}
       />
       

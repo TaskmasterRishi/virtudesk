@@ -15,7 +15,8 @@ export default function DashboardLayout({
 }>) {
   const { user } = useUser();
   const pathname = usePathname();
-  const isAnalyticsPage = pathname === '/dashboard/analytics';
+  const hideTasksPanel =
+    pathname === '/dashboard/analytics' || pathname === '/dashboard/meetings';
 
   return (
     <SidebarProvider>
@@ -28,12 +29,12 @@ export default function DashboardLayout({
               Welcome, <span className="text-primary">{user?.fullName}</span>
             </h1>
           </div>
-          {!isAnalyticsPage && <CharacterSelection/>}
+          {!hideTasksPanel && <CharacterSelection/>}
         </div>
         <div className="w-full">
           {children}
         </div>
-        {!isAnalyticsPage && <TasksPanel />}
+        {!hideTasksPanel && <TasksPanel />}
         <TaskAssignmentNotification />
       </main>
     </SidebarProvider>

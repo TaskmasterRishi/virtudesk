@@ -1,6 +1,6 @@
 'use client';
 
-import React, { Suspense, useState, useRef } from 'react';
+import React, { Suspense, useEffect, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 import PhaserMap from '@/game/PhaserMap';
 import { useAFK } from '@/hooks/useAFK';
@@ -15,7 +15,6 @@ import TaskAssignmentNotification from '@/components/TaskAssignmentNotification'
 import { useUser } from '@clerk/nextjs';
 import { useAuth } from '@clerk/nextjs';
 import { useWorkSessionSync } from '@/hooks/useWorkSessionSync';
-import { Button } from '@/components/ui/button';
 import type { CollaborativeWhiteboardProps } from '@/components/CollaborativeWhiteboard';
 import { setWhiteboardOpen } from '@/game/whiteboardState';
 import WorkSessionTimer from './WorkSessionTimer';
@@ -33,6 +32,10 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
   const dialogContentRef = useRef<HTMLDivElement>(null);
 
   const isManager = !!orgRole && (orgRole === 'org:admin' || orgRole === 'admin' || orgRole.includes('admin'));
+
+  useEffect(() => {
+    void import('@/components/CollaborativeWhiteboard');
+  }, []);
 
   // Hooks (they no-op for managers due to internal checks)
   useAFK();
@@ -91,14 +94,6 @@ export default function RoomPage({ params }: { params: Promise<{ roomId: string 
         {!isManager && <WorkSessionTimer />}
         {/* <LeaveRoomButton /> */}
       </div>
-        {inMeeting && !isWhiteboardOpen && <Button style={{position:"absolute",left:"10%",bottom:"5%",zIndex:"10000"}}
-          onClick={handleOpenWhiteboard}
-          className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-md px-4 py-2 shadow-md hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:ring-offset-1 transition"
-          size="sm"
-        >
-          Open Whiteboard
-        </Button>}
-
       <PlayersPanel inMeeting={inMeeting} setInMeeting={setInMeeting} roomId={roomId} />
 	  <RoomTasksPanel roomId={roomId} />
 	  <TaskAssignmentNotification />

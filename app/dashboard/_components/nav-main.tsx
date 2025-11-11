@@ -21,8 +21,8 @@ const allNavItems = [
     roles: ["org:admin", "admin", "org:member", "basic_member"],
   },
   {
-    title: "Events",
-    url: "/events",
+    title: "Meetings",
+    url: "/dashboard/meetings",
     icon: CalendarClock,
     roles: ["org:admin", "admin", "org:member", "basic_member"],
   },
