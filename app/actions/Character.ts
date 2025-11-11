@@ -18,12 +18,12 @@ export const getUserCharacter = async (user_id: string) => {
   return data;
 };
 
-export const setUserCharacter = async (user_id: string, character_id: string) => {
+export const setUserCharacter = async (user_id: string, character_name: string) => {
   const supabase = await createClient();
 
   const { data, error } = await supabase
     .from('user_characters')
-    .upsert([{ user_id, character_id }], { onConflict: 'user_id' })
+    .upsert([{ user_id, character_name }], { onConflict: 'user_id' })
     .select()
     .single();
 

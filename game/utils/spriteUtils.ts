@@ -29,6 +29,32 @@ export const AVAILABLE_SPRITES: CharacterSprite[] = [
     }
   },
   {
+    name: 'casual man',
+    folderPath: '/sprites/person2',  // Back to absolute path
+    image: '/sprites/person2/person2.png',
+    idleFrames: 2,
+    walkFrames: 9,
+    runFrames: 8,
+    animations: {
+      idle: 'idle',
+      walk: 'walk',
+      run: 'run'
+    }
+  },
+  {
+    name: 'Office man 2',
+    folderPath: '/sprites/person3',  // Back to absolute path
+    image: '/sprites/person3/person3.png',
+    idleFrames: 2,
+    walkFrames: 9,
+    runFrames: 8,
+    animations: {
+      idle: 'idle',
+      walk: 'walk',
+      run: 'run'
+    }
+  },
+  {
     name: 'Office woman',
     folderPath: '/sprites/girl1',  // Back to absolute path
     image: '/sprites/girl1/girl1.png',

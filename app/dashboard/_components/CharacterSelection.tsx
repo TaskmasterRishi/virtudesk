@@ -29,8 +29,8 @@ export const CharacterSelection = () => {
       if (!isSignedIn || !user?.id) return;
       const record = await getUserCharacter(user.id);
 
-      if (record?.character_id) {
-        const sprite = getCharacterByName(record.character_id) ?? null;
+      if (record?.character_name) {  // Changed from character_id to character_name
+        const sprite = getCharacterByName(record.character_name) ?? null;  // Changed from character_id to character_name
         setSelectedCharacter(sprite);
       } else {
         setSelectedCharacter(null);

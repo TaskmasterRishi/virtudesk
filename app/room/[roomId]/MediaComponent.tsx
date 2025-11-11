@@ -70,6 +70,12 @@ export default function  MediaComponent(props:propType){
     }
 
     const getUserMediaInit = useCallback(()=>{
+        // Check if we're in the browser and mediaDevices is available
+        if (typeof window === 'undefined' || !navigator?.mediaDevices?.getUserMedia) {
+            console.warn('getUserMedia is not available in this environment');
+            return;
+        }
+        
         navigator.mediaDevices.getUserMedia({audio:true})
         .then((s)=>{
             updateMyStream(s)
@@ -79,6 +85,11 @@ export default function  MediaComponent(props:propType){
     },[])
 
     async function getUserMedia(c:{video:boolean,audio:boolean}){
+        // Check if we're in the browser and mediaDevices is available
+        if (typeof window === 'undefined' || !navigator?.mediaDevices?.getUserMedia) {
+            throw new Error('getUserMedia is not available in this environment');
+        }
+        
         try{
             const newStream=await navigator.mediaDevices.getUserMedia({audio:c.audio,video:c.video,})
             updateMyStream(newStream);

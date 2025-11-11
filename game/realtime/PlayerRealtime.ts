@@ -524,15 +524,45 @@ class PeerService{
   }
   async setLocal(ACK:RTCSessionDescriptionInit){
     if(this.peer){
-      await this.peer.setRemoteDescription(new RTCSessionDescription(ACK))
-      this.state=true
-      this.queue.forEach(async (ICE)=>{
-         try{
-          await this.peer?.addIceCandidate(new RTCIceCandidate(ICE))
-            console.log("ICE actually added")
-          }catch(e){console.error("Problem occured while addinf ICE")}
-      })
-      this.queue=[]
+      // Check connection state before setting remote description
+      const currentState = this.peer.signalingState;
+      console.log(`[SET LOCAL] Current signaling state: ${currentState}`);
+      
+      // Validate the answer before using it
+      if (!ACK || !ACK.type || !ACK.sdp) {
+        throw new Error("Invalid answer: missing type or sdp");
+      }
+      
+      // Only set remote description if we're in the right state
+      // We should be in "have-local-offer" state to set a remote answer
+      if (currentState === "have-local-offer" || currentState === "stable") {
+        try {
+          await this.peer.setRemoteDescription(new RTCSessionDescription({
+            type: ACK.type,
+            sdp: ACK.sdp
+          }));
+          this.state=true;
+          
+          // Process queued ICE candidates
+          this.queue.forEach(async (ICE)=>{
+            try {
+              await this.peer?.addIceCandidate(new RTCIceCandidate(ICE));
+              console.log("ICE actually added");
+            } catch(e) {
+              console.error("Problem occurred while adding ICE:", e);
+            }
+          });
+          this.queue=[];
+        } catch (error) {
+          console.error(`[SET LOCAL] Error setting remote description in state ${currentState}:`, error);
+          // If we're in wrong state, try to recover
+          if (currentState === "stable") {
+            console.warn(`[SET LOCAL] Connection is stable, might be a duplicate call. Ignoring.`);
+          }
+        }
+      } else {
+        console.warn(`[SET LOCAL] Cannot set remote description in state: ${currentState}`);
+      }
     }
   }
   async addICECandidates(ICE:RTCIceCandidate){
@@ -670,6 +700,13 @@ const data = payload as { from: string; to: string; name:string ,sdp?:RTCSession
     currentState.callerId=data.from;
     currentState.callerName=data.name;
     currentState.callerService=new CallerService(data.from,data.name);
+    
+    // Add safety check
+    if (typeof window === 'undefined' || !navigator?.mediaDevices?.getUserMedia) {
+      console.error('getUserMedia is not available');
+      return;
+    }
+    
     const newStream=await navigator.mediaDevices.getUserMedia({video:true,audio:true})
     setMyStreamCaller!(newStream);
     const Peer=currentState.callerService;
@@ -868,18 +905,28 @@ channel.on("broadcast", { event: "webrtc-initials-ACK" }, ({ payload }) => {
   const data = payload as { from: string; to: string; sdp: RTCSessionDescriptionInit,mode?:ModeType };
   if (!data.from || data.from === playerIdRef) return;
   if (data.to === playerIdRef) {
-    
     const Peer = peersConnections.get(data.from);
-    Peer?.setLocal(data.sdp);
-   
-    console.log("ACK recieved:", data.from);
-    if(data.mode){return}
-    if(userNameState){
-
-        channel?.send({type:"broadcast",event:"onUserName",payload:{from:playerIdRef,name:pendingFunction}})
+    if (!Peer || !Peer.peer) {
+      console.error(`[WEBRTC-ACK] Peer not found for ${data.from}`);
+      return;
     }
-    else{
-      userNameState=true;
+    
+    // Check state before setting
+    const currentState = Peer.peer.signalingState;
+    console.log(`[WEBRTC-ACK] Current state for ${data.from}: ${currentState}`);
+    
+    if (currentState === "have-local-offer") {
+      Peer.setLocal(data.sdp);
+      console.log("ACK received:", data.from);
+      if(data.mode){return}
+      if(userNameState){
+        channel?.send({type:"broadcast",event:"onUserName",payload:{from:playerIdRef,name:pendingFunction}})
+      }
+      else{
+        userNameState=true;
+      }
+    } else {
+      console.warn(`[WEBRTC-ACK] Cannot set local description in state: ${currentState}`);
     }
   }
 });

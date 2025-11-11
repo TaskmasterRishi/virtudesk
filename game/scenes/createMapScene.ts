@@ -3,6 +3,7 @@ import {
   createPlayerRealtime,
   popNextPosition,
   getAllPlayers,
+  onPlayerMeta,
 } from "../realtime/PlayerRealtime";
 import {
   AVAILABLE_SPRITES,
@@ -11,7 +12,7 @@ import {
   CharacterSprite,
 } from "../utils/spriteUtils";
 import { supabase } from "@/utils/supabase/client";
-import { onChatInputFocusChange } from "../chatState"; // Import onChatInputFocusChange
+import { onChatInputFocusChange } from "../chatState";
 import { getWhiteboardOpen } from "../whiteboardState";
 
 export interface MapSceneOptions {
@@ -38,17 +39,35 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
     private selectedCharacter!: CharacterSprite;
     private remotePlayers: Record<string, any> = {};
     private prevRemotePos: Record<string, { x: number; y: number }> = {};
-    private loadingTextures = new Set<string>(); // avoid duplicate loads
+    private loadingTextures = new Set<string>();
     private perPlayerChar: Record<string, CharacterSprite> = {};
-    // HTML overlay elements for crisp text rendering
+    private spriteCharacterMap: Record<string, string> = {};
+    private pendingPositions: Record<string, { x: number; y: number }> = {};
+    private characterLoading: Set<string> = new Set();
     private playerNameElement: HTMLElement | null = null;
     private remoteNameElements: Record<string, HTMLElement> = {};
     private gameContainer: HTMLElement | null = null;
 
     constructor() {
       super("MapScene");
-      // will be set from Supabase in create(); default fallback
+      // default fallback
       this.selectedCharacter = AVAILABLE_SPRITES[0];
+    }
+
+    // ---------------------------
+    // Helpers for sanitized keys
+    // ---------------------------
+    private safeName(char: CharacterSprite) {
+      return char.name.replace(/\s+/g, "_").replace(/[^\w\-]/g, "");
+    }
+
+    private animKey(char: CharacterSprite, baseKey: string) {
+      const safe = this.safeName(char);
+      return `${safe}__${baseKey}`;
+    }
+
+    private textureKey(char: CharacterSprite, state: "idle" | "walk" | "run") {
+      return `${this.safeName(char)}_${state}_img`;
     }
 
     private getGameContainer(): HTMLElement | null {
@@ -65,8 +84,7 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
       const overlay = document.createElement('div');
       overlay.className = 'player-name-overlay';
       overlay.textContent = name;
-      
-      // Crisp CSS styling
+
       Object.assign(overlay.style, {
         position: 'absolute',
         fontFamily: 'Arial, sans-serif',
@@ -88,7 +106,6 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
         transition: 'opacity 0.2s ease',
       });
 
-      // Add special styling for local player
       if (isLocalPlayer) {
         overlay.style.border = '1px solid rgba(59, 130, 246, 0.5)';
         overlay.style.background = 'rgba(59, 130, 246, 0.2)';
@@ -98,29 +115,23 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
       return overlay;
     }
 
-
     private updateNameOverlayPosition(element: HTMLElement, worldX: number, worldY: number) {
       if (!element || !this.cameras.main) return;
 
-      // Hide name overlays when whiteboard is open
       if (getWhiteboardOpen()) {
         element.style.display = 'none';
         return;
       }
 
-      // Show name overlays when whiteboard is closed
       element.style.display = 'block';
 
-      // Convert world coordinates to screen coordinates
       const camera = this.cameras.main;
       const screenX = (worldX - camera.worldView.x) * camera.zoom;
       const screenY = (worldY - camera.worldView.y) * camera.zoom;
 
-      // Get canvas position
       const canvas = this.game.canvas;
       const canvasRect = canvas.getBoundingClientRect();
-      
-      // Position relative to canvas
+
       element.style.left = `${canvasRect.left + screenX}px`;
       element.style.top = `${canvasRect.top + screenY - 8}px`;
     }
@@ -131,12 +142,15 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
       }
     }
 
+    // ---------------------------
+    // Loading / textures
+    // ---------------------------
     private loadAllCharacters() {
       for (const c of AVAILABLE_SPRITES) {
         const paths = getSpritePaths(c);
-        const idleKey = `${c.name}_idle_img`;
-        const walkKey = `${c.name}_walk_img`;
-        const runKey = `${c.name}_run_img`;
+        const idleKey = this.textureKey(c, "idle");
+        const walkKey = this.textureKey(c, "walk");
+        const runKey = this.textureKey(c, "run");
 
         if (!this.textures.exists(idleKey)) {
           this.load.image(idleKey, paths.idle);
@@ -151,7 +165,7 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
     }
 
     preload() {
-      this.load.crossOrigin = "anonymous";  // Keep if needed for external assets
+      this.load.crossOrigin = "anonymous";
       this.load.image("tiles", "/assests/tiles.png", {
         scaleMode: Phaser.ScaleModes.NEAREST,
       });
@@ -168,6 +182,9 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
       g.destroy();
     }
 
+    // ---------------------------
+    // Animation creation / slicing
+    // ---------------------------
     private ensureAnimsFor(char: CharacterSprite) {
       const sliceSheet = (imgKey: string, frames: number) => {
         const tex = this.textures.get(imgKey);
@@ -176,14 +193,9 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
           return { frameNames: [] as string[], fw: 0, fh: 0 };
         }
 
-        // Check if frames already exist to avoid re-slicing
         const expectedFirst = `${imgKey}_0`;
         if ((tex as any).frames && (tex as any).frames[expectedFirst]) {
-          const names = Array.from(
-            { length: frames },
-            (_, i) => `${imgKey}_${i}`
-          );
-          // Verify frames actually exist
+          const names = Array.from({ length: frames }, (_, i) => `${imgKey}_${i}`);
           const validNames = names.filter((n) => {
             const frame = (tex as any).frames[n];
             return frame && frame.width > 0 && frame.height > 0;
@@ -191,9 +203,7 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
           return { frameNames: validNames, fw: 0, fh: 0 };
         }
 
-        const src = tex.getSourceImage() as
-          | HTMLImageElement
-          | HTMLCanvasElement;
+        const src = tex.getSourceImage() as HTMLImageElement | HTMLCanvasElement;
         if (!src) {
           console.warn(`Source image not found for texture: ${imgKey}`);
           return { frameNames: [] as string[], fw: 0, fh: 0 };
@@ -201,7 +211,7 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
 
         const totalW = (src as any).width as number;
         const totalH = (src as any).height as number;
-        
+
         if (!totalW || !totalH || totalW <= 0 || totalH <= 0) {
           console.warn(`Invalid dimensions for texture: ${imgKey} (${totalW}x${totalH})`);
           return { frameNames: [] as string[], fw: 0, fh: 0 };
@@ -219,7 +229,15 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
         for (let i = 0; i < frames; i++) {
           const name = `${imgKey}_${i}`;
           try {
-            tex.add(name, 0, i * frameWidth, 0, frameWidth, frameHeight);
+            // tex.add(name, 0, i * frameWidth, 0, frameWidth, frameHeight);
+            // Phaser's TextureManager add signature differs between versions; use add to frames map if available:
+            if ((tex as any).add) {
+              (tex as any).add(name, 0, i * frameWidth, 0, frameWidth, frameHeight);
+            } else {
+              // fallback: create a frame from canvas
+              (tex as any).frames = (tex as any).frames || {};
+              (tex as any).frames[name] = { width: frameWidth, height: frameHeight };
+            }
             names.push(name);
           } catch (e) {
             console.warn(`Failed to add frame ${name}:`, e);
@@ -228,27 +246,25 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
         return { frameNames: names, fw: frameWidth, fh: frameHeight };
       };
 
-      const idleKey = `${char.name}_idle_img`;
-      const walkKey = `${char.name}_walk_img`;
-      const runKey = `${char.name}_run_img`;
+      const idleKey = this.textureKey(char, "idle");
+      const walkKey = this.textureKey(char, "walk");
+      const runKey = this.textureKey(char, "run");
 
       const idle = sliceSheet(idleKey, char.idleFrames);
       const walk = sliceSheet(walkKey, char.walkFrames);
       const run = sliceSheet(runKey, char.runFrames);
 
-      const ensureAnim = (
-        key: string,
-        imgKey: string,
-        names: string[],
-        frameRate: number
-      ) => {
+      const idleAnimKey = this.animKey(char, char.animations.idle);
+      const walkAnimKey = this.animKey(char, char.animations.walk);
+      const runAnimKey = this.animKey(char, char.animations.run);
+
+      const ensureAnim = (key: string, imgKey: string, names: string[], frameRate: number) => {
         if (this.anims.exists(key)) return;
         if (!names.length) {
           console.warn(`No valid frames for animation: ${key} (texture: ${imgKey})`);
           return;
         }
-        
-        // Verify all frames exist before creating animation
+
         const tex = this.textures.get(imgKey);
         if (!tex) {
           console.warn(`Texture not found when creating animation: ${imgKey}`);
@@ -277,39 +293,46 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
         }
       };
 
-      ensureAnim(char.animations.idle, idleKey, idle.frameNames, 6);
-      ensureAnim(char.animations.walk, walkKey, walk.frameNames, 10);
-      ensureAnim(char.animations.run, runKey, run.frameNames, 12);
+      ensureAnim(idleAnimKey, idleKey, idle.frameNames, 6);
+      ensureAnim(walkAnimKey, walkKey, walk.frameNames, 10);
+      ensureAnim(runAnimKey, runKey, run.frameNames, 12);
     }
 
+    // ---------------------------
+    // Player creation
+    // ---------------------------
     private createPlayerAt(x: number, y: number, tileW: number, tileH: number) {
       const char = this.selectedCharacter;
       this.ensureAnimsFor(char);
 
-      const firstFrame = `${char.name}_idle_img_0`;
-      this.player = this.physics.add.sprite(x, y, `${char.name}_idle_img`, firstFrame);
-      // Increase the scale factor here for larger characters:
-      const scaleFactor = 2; // Increased from 1.5 to 2.6 to enlarge characters
-      const originalHeight = (this.textures.get(`${char.name}_idle_img`)?.getSourceImage() as any)?.height;
+      const idleTexKey = this.textureKey(char, "idle");
+      const firstFrame = `${idleTexKey}_0`;
+
+      this.player = this.physics.add.sprite(x, y, idleTexKey, firstFrame);
+
+      // Increased size factor
+      const scaleFactor = 2;
+      const originalHeight = (this.textures.get(idleTexKey)?.getSourceImage() as any)?.height;
       const scale = ((tileH) / originalHeight) * scaleFactor || 1.5;
+
       this.player.setOrigin(0.5, 0.7).setDepth(10);
       this.player.setScale(scale);
       this.player.setCollideWorldBounds(true);
 
-      const hitboxWidth = tileW *0.2 * scaleFactor;   // wider
-      const hitboxHeight = tileH *1.8 * scaleFactor; // taller
+      const hitboxWidth = tileW * 0.2 * scaleFactor;
+      const hitboxHeight = tileH * 1.8 * scaleFactor;
       this.player.body.setSize(hitboxWidth, hitboxHeight);
 
       this.cameras.main.roundPixels = true;
       this.cameras.main.startFollow(this.player, true, 1, 1);
       this.cameras.main.setFollowOffset(0, 0);
 
-      // Play idle only if animation exists and is valid
-      if (this.anims.exists(char.animations.idle)) {
-        const anim = this.anims.get(char.animations.idle);
+      const idleAnimKey = this.animKey(char, char.animations.idle);
+      if (this.anims.exists(idleAnimKey)) {
+        const anim = this.anims.get(idleAnimKey);
         if (anim && anim.frames && anim.frames.length > 0) {
           try {
-            this.player.anims.play(char.animations.idle);
+            this.player.anims.play(idleAnimKey);
           } catch (e) {
             console.warn(`Failed to play idle animation:`, e);
           }
@@ -323,6 +346,22 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
         90,
         char.animations
       );
+// Pass namespaced animation keys so PlayerMovement plays the correct animations
+const nsAnimations = {
+  idle: this.animKey(char, char.animations.idle),
+  walk: this.animKey(char, char.animations.walk),
+  run:  this.animKey(char, char.animations.run),
+};
+
+console.log(`[DEBUG] PlayerMovement animations for local player:`, nsAnimations);
+
+this.playerMovement = new PlayerMovement(
+  this.player,
+  this.cursors,
+  this.wasd,
+  90,
+  nsAnimations
+);
 
       if (this.wallsLayer) {
         this.physics.add.collider(this.player, this.wallsLayer, null, null, this);
@@ -330,90 +369,50 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
 
       // Remember my character for meta
       this.perPlayerChar[opts.userId] = char;
+      this.spriteCharacterMap[opts.userId] = char.name;
 
-      // --- PLAYER NAME LABEL (HTML OVERLAY) ---
+      // Player name overlay
       if (this.playerNameElement) {
         this.destroyNameOverlay(this.playerNameElement);
       }
-      
       const playerName = opts.name || "Player";
       this.playerNameElement = this.createNameOverlay(playerName, true);
-      // --- END PLAYER NAME LABEL ---
     }
 
-    // --- FIXED REMOTE SPRITE/ANIMATION LOGIC ---
-    private ensureRemoteSprite(
-      userId: string,
-      characterName?: string,
-      x?: number,
-      y?: number
-    ) {
-      // Check if scene is still active
-      if (
-        !this.add ||
-        !this.scene ||
-        typeof this.scene.isActive !== "function" ||
-        this.scene.isActive() === false
-      ) {
-        return null;
+    // ---------------------------
+    // Fetch character mapping
+    // ---------------------------
+    private async fetchCharacterForUser(userId: string): Promise<CharacterSprite> {
+      console.log(`[FETCH] Fetching character for user_id: ${userId}`);
+      const { data, error } = await supabase
+        .from("user_characters")
+        .select("character_name")
+        .eq("user_id", userId)
+        .single();
+
+      console.log(`[FETCH] Result for ${userId}:`, { data, error });
+
+      if (error) {
+        console.error(`[FETCH] Error for ${userId}:`, error);
+        return AVAILABLE_SPRITES[0];
       }
 
-      let s = this.remotePlayers[userId];
-      const char = characterName
-        ? getCharacterByName(characterName) ?? AVAILABLE_SPRITES[0]
-        : this.perPlayerChar[userId] ?? AVAILABLE_SPRITES[0];
-      this.perPlayerChar[userId] = char;
+      if (!data?.character_name) {
+        console.warn(`[FETCH] No character_name for ${userId}`);
+        return AVAILABLE_SPRITES[0];
+      }
 
-      this.ensureAnimsFor(char);
+      const characterNameFromDB = data.character_name;
+      const char = getCharacterByName(characterNameFromDB);
 
-      if (!s) {
-        s = this.add.sprite(x ?? 0, y ?? 0, `${char.name}_idle_img`);
-        s.setOrigin(0.5, 0.7).setDepth(9);
-        // Use the same increased scaling for remote players
-        if (this.player) {
-          s.setScale(this.player.scaleX, this.player.scaleY);
-        } else {
-          // fallback: get texture height, mimic local calculation
-          const scaleFactor = 2.6;
-          const originalHeight = (this.textures.get(`${char.name}_idle_img`)?.getSourceImage() as any)?.height;
-          const scale = ((this.tileH) / originalHeight) * scaleFactor || 1.5;
-          s.setScale(scale);
-        }
-        this.remotePlayers[userId] = s;
+      if (char) {
+        console.log(`[FETCH] ✅ Matched "${characterNameFromDB}" -> sprite: ${char.name} for ${userId}`);
+        return char;
       } else {
-        const desiredTex = `${char.name}_idle_img`;
-        if (s.texture?.key !== desiredTex) {
-          s.anims?.stop();
-          s.setTexture(desiredTex);
-        }
+        console.error(`[FETCH] ❌ No match found for "${characterNameFromDB}" in AVAILABLE_SPRITES`);
+        console.log(`[FETCH] Available names are:`, AVAILABLE_SPRITES.map(s => `"${s.name}"`));
+        return AVAILABLE_SPRITES[0];
       }
-
-      // Play idle only if animation exists and is valid
-      if (this.anims.exists(char.animations.idle)) {
-        const anim = this.anims.get(char.animations.idle);
-        if (anim && anim.frames && anim.frames.length > 0) {
-          try {
-            s.anims.play(char.animations.idle, true);
-          } catch (e) {
-            console.warn(`Failed to play idle animation for remote player:`, e);
-          }
-        }
-      }
-
-          // --- REMOTE PLAYER NAME LABEL (HTML OVERLAY) ---
-          if (this.remoteNameElements[userId]) {
-            this.destroyNameOverlay(this.remoteNameElements[userId]);
-          }
-          
-          // Get the correct name for this user
-          let remoteName = userId;
-          const allPlayers = getAllPlayers();
-          const found = allPlayers.find(p => p.id === userId);
-          if (found && found.name) remoteName = found.name;
-    
-          this.remoteNameElements[userId] = this.createNameOverlay(remoteName, false);
-          // --- END REMOTE PLAYER NAME LABEL ---
-      return s;
     }
 
     private handlePresenceSync = (_state: Record<string, any[]>) => {};
@@ -422,12 +421,12 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
       try {
         const { data, error } = await supabase
           .from("user_characters")
-          .select("character_id")
+          .select("character_name")
           .eq("user_id", opts.userId)
           .single();
 
-        if (!error && data?.character_id) {
-          const byName = getCharacterByName(data.character_id);
+        if (!error && data?.character_name) {
+          const byName = getCharacterByName(data.character_name);
           this.selectedCharacter = byName ?? AVAILABLE_SPRITES[0];
         } else {
           this.selectedCharacter = AVAILABLE_SPRITES[0];
@@ -437,85 +436,247 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
       }
     }
 
+    // ---------------------------
+    // Realtime init & handlers
+    // ---------------------------
     private initRealtime() {
+      console.log('[INIT REALTIME] Starting realtime initialization for room:', opts.roomId);
+
       this.rt = createPlayerRealtime({
         roomId: opts.roomId,
         me: {
           userId: opts.userId,
           name: opts.name,
-          character: this.selectedCharacter.name,
           avatar: opts.avatarUrl,
         },
         handlers: {
           onPlayerPos: (p) => {
             if (p.userId === opts.userId) return;
 
-            const s = this.ensureRemoteSprite(p.userId, p.character, p.x, p.y);
-            if (!s) return;
+            // If we don't have character yet, queue the position and fetch character
+            if (!this.perPlayerChar[p.userId] && !this.characterLoading.has(p.userId)) {
+              this.characterLoading.add(p.userId);
+              this.pendingPositions[p.userId] = { x: p.x, y: p.y };
 
-            s.setPosition(p.x, p.y);
+              this.fetchCharacterForUser(p.userId).then(char => {
+                this.perPlayerChar[p.userId] = char;
+                this.characterLoading.delete(p.userId);
 
-            const prev = this.prevRemotePos?.[p.userId];
-            const dx = prev ? p.x - prev.x : 0;
-            const dy = prev ? p.y - prev.y : 0;
-            const moving = Math.abs(dx) > 0.1 || Math.abs(dy) > 0.1;
-            const running = Math.abs(dx) > 1.0 || Math.abs(dy) > 1.0;
-
-            const char = this.perPlayerChar[p.userId] ?? AVAILABLE_SPRITES[0];
-            const { idle, walk, run } = char.animations;
-
-            if (moving) {
-              const target =
-                running && this.anims.exists(run)
-                  ? run
-                  : this.anims.exists(walk)
-                  ? walk
-                  : idle;
-              if (target && s.anims?.currentAnim?.key !== target) {
-                const anim = this.anims.get(target);
-                if (anim && anim.frames && anim.frames.length > 0) {
-                  try {
-                    s.anims.play(target, true);
-                  } catch (e) {
-                    console.warn(`Failed to play animation ${target} for remote player:`, e);
+                const pendingPos = this.pendingPositions[p.userId];
+                if (pendingPos) {
+                  const s = this.ensureRemoteSprite(p.userId, pendingPos.x, pendingPos.y);
+                  if (s) {
+                    this.updateSpritePositionAndAnimation(s, { ...p, userId: p.userId }, char);
                   }
+                  delete this.pendingPositions[p.userId];
                 }
-              }
-            } else if (
-              this.anims.exists(idle) &&
-              s.anims?.currentAnim?.key !== idle
-            ) {
-              const anim = this.anims.get(idle);
-              if (anim && anim.frames && anim.frames.length > 0) {
-                try {
-                  s.anims.play(idle, true);
-                } catch (e) {
-                  console.warn(`Failed to play idle animation for remote player:`, e);
-                }
-              }
+              });
+              return;
             }
 
-            if (dx !== 0) s.setFlipX(dx < 0);
-            this.prevRemotePos[p.userId] = { x: p.x, y: p.y };
+            // If character is still loading, just queue the position
+            if (this.characterLoading.has(p.userId)) {
+              this.pendingPositions[p.userId] = { x: p.x, y: p.y };
+              return;
+            }
+
+            const char = this.perPlayerChar[p.userId];
+            if (!char) return;
+
+            const s = this.ensureRemoteSprite(p.userId, p.x, p.y);
+            if (!s) return;
+
+            this.updateSpritePositionAndAnimation(s, { ...p, userId: p.userId }, char);
           },
           onPresenceSync: this.handlePresenceSync,
         },
       });
 
+      const offMeta = onPlayerMeta((playerId, meta) => {
+        if (playerId === opts.userId) return;
+
+        if (!this.perPlayerChar[playerId] && !this.characterLoading.has(playerId)) {
+          this.characterLoading.add(playerId);
+          this.fetchCharacterForUser(playerId).then(char => {
+            this.perPlayerChar[playerId] = char;
+            this.characterLoading.delete(playerId);
+
+            const pendingPos = this.pendingPositions[playerId];
+            if (pendingPos) {
+              this.ensureRemoteSprite(playerId, pendingPos.x, pendingPos.y);
+              delete this.pendingPositions[playerId];
+            }
+          });
+        }
+      });
+
+      setTimeout(async () => {
+        const allPlayers = getAllPlayers();
+        const fetchPromises: Promise<void>[] = [];
+
+        for (const participant of allPlayers) {
+          if (!participant.id || participant.id === opts.userId) continue;
+          if (!this.perPlayerChar[participant.id] && !this.characterLoading.has(participant.id)) {
+            this.characterLoading.add(participant.id);
+
+            const promise = this.fetchCharacterForUser(participant.id).then(char => {
+              this.perPlayerChar[participant.id] = char;
+              this.characterLoading.delete(participant.id);
+
+              const pendingPos = this.pendingPositions[participant.id];
+              if (pendingPos) {
+                this.ensureRemoteSprite(participant.id, pendingPos.x, pendingPos.y);
+                delete this.pendingPositions[participant.id];
+              }
+            });
+
+            fetchPromises.push(promise);
+          }
+        }
+
+        await Promise.all(fetchPromises);
+        console.log(`[INIT] Loaded characters for ${fetchPromises.length} players`);
+      }, 500);
+
       this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+        try { offMeta(); } catch {}
         this.rt?.destroy();
         this.rt = null;
         Object.values(this.remotePlayers).forEach((s) => s.destroy());
         this.remotePlayers = {};
+        this.pendingPositions = {};
+        this.characterLoading.clear();
       });
     }
 
-    private setupMapBounds(
-      mapW: number,
-      mapH: number,
-      tileW: number,
-      tileH: number
-    ) {
+    // ---------------------------
+    // Remote sprite helpers
+    // ---------------------------
+    private updateSpritePositionAndAnimation(s: any, p: { x: number; y: number; userId?: string }, char: CharacterSprite) {
+      s.setPosition(p.x, p.y);
+
+      const prev = this.prevRemotePos?.[p.userId ?? ""];
+      const dx = prev ? p.x - prev.x : 0;
+      const dy = prev ? p.y - prev.y : 0;
+      const moving = Math.abs(dx) > 0.1 || Math.abs(dy) > 0.1;
+      const running = Math.abs(dx) > 1.0 || Math.abs(dy) > 1.0;
+
+      const idleKey = this.animKey(char, char.animations.idle);
+      const walkKey = this.animKey(char, char.animations.walk);
+      const runKey  = this.animKey(char, char.animations.run);
+
+      if (moving) {
+        const targetKey = (running && this.anims.exists(runKey)) ? runKey
+                         : (this.anims.exists(walkKey) ? walkKey : idleKey);
+
+        if (targetKey && s.anims?.currentAnim?.key !== targetKey) {
+          try { s.anims.play(targetKey, true); } catch (e) { console.warn('Failed to play target animation', e); }
+        }
+      } else {
+        if (this.anims.exists(idleKey) && s.anims?.currentAnim?.key !== idleKey) {
+          try { s.anims.play(idleKey, true); } catch (e) { console.warn('Failed to play idle animation', e); }
+        }
+      }
+
+      if (dx !== 0) s.setFlipX(dx < 0);
+      if (p.userId) this.prevRemotePos[p.userId] = { x: p.x, y: p.y };
+    }
+
+    private ensureRemoteSprite(userId: string, x?: number, y?: number) {
+      if (!this.add || !this.scene || typeof this.scene.isActive !== "function" || this.scene.isActive() === false) {
+        return null;
+      }
+
+      const char = this.perPlayerChar[userId];
+      if (!char) {
+        return null;
+      }
+
+      this.ensureAnimsFor(char);
+
+      let s = this.remotePlayers[userId];
+      const desiredTextureKey = this.textureKey(char, "idle");
+      const desiredFirstFrame = `${desiredTextureKey}_0`;
+      const storedCharName = this.spriteCharacterMap[userId];
+
+      if (!s || storedCharName !== char.name) {
+        if (s) {
+          s.destroy();
+        }
+
+        s = this.physics.add.sprite(x ?? 0, y ?? 0, desiredTextureKey, desiredFirstFrame);
+        this.spriteCharacterMap[userId] = char.name;
+
+        const scaleFactor = 2;
+        const originalHeight = (this.textures.get(desiredTextureKey)?.getSourceImage() as any)?.height;
+        const scale = ((this.tileH) / originalHeight) * scaleFactor || 1.5;
+
+        s.setOrigin(0.5, 0.7).setDepth(9);
+        s.setScale(scale);
+
+        const idleAnimKey = this.animKey(char, char.animations.idle);
+        if (this.anims.exists(idleAnimKey)) {
+          const anim = this.anims.get(idleAnimKey);
+          if (anim && anim.frames && anim.frames.length > 0) {
+            try {
+              s.anims.play(idleAnimKey);
+            } catch (e) {
+              console.warn(`Failed to play idle animation for ${userId}:`, e);
+            }
+          }
+        }
+
+        this.remotePlayers[userId] = s;
+      }
+
+      // Update name overlay
+      if (this.remoteNameElements[userId]) {
+        this.destroyNameOverlay(this.remoteNameElements[userId]);
+      }
+      let remoteName = userId;
+      const allPlayers = getAllPlayers();
+      const found = allPlayers.find((p: any) => p.id === userId);
+      if (found && found.name) remoteName = found.name;
+      this.remoteNameElements[userId] = this.createNameOverlay(remoteName, false);
+
+      return s;
+    }
+
+    private updateRemoteSpriteCharacter(userId: string, char: CharacterSprite) {
+      const s = this.remotePlayers[userId];
+      if (!s) return;
+
+      this.ensureAnimsFor(char);
+
+      const desiredTex = this.textureKey(char, "idle");
+      console.log(`Force updating sprite texture for ${userId} to "${desiredTex}"`);
+
+      s.anims?.stop();
+      s.setTexture(desiredTex);
+
+      if (this.player) {
+        s.setScale(this.player.scaleX, this.player.scaleY);
+      } else {
+        const scaleFactor = 2;
+        const originalHeight = (this.textures.get(desiredTex)?.getSourceImage() as any)?.height;
+        const scale = ((this.tileH) / originalHeight) * scaleFactor || 1.5;
+        s.setScale(scale);
+      }
+
+      const idleAnimKey = this.animKey(char, char.animations.idle);
+      if (this.anims.exists(idleAnimKey)) {
+        try {
+          s.anims.play(idleAnimKey, true);
+        } catch (e) {
+          console.warn(`Failed to play idle animation for ${userId}:`, e);
+        }
+      }
+    }
+
+    // ---------------------------
+    // Map creation helpers
+    // ---------------------------
+    private setupMapBounds(mapW: number, mapH: number, tileW: number, tileH: number) {
       const insetX = tileW * 0.5;
       const insetY = tileH * 0.5;
       const leftBound = insetX;
@@ -590,14 +751,17 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
       return { map, tileW, tileH };
     }
 
+    // ---------------------------
+    // Scene lifecycle
+    // ---------------------------
     async create() {
+      console.log('[CREATE] Scene create() called');
       const keyboard = this.input.keyboard;
       if (!keyboard) return;
 
       this.cursors = keyboard.createCursorKeys();
       this.wasd = keyboard.addKeys("W,A,S,D");
 
-      // Subscribe to chat focus changes to enable/disable Phaser input
       const offChatFocus = onChatInputFocusChange((isFocused) => {
         if (keyboard) {
           keyboard.enabled = !isFocused;
@@ -639,10 +803,10 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
         this.setupMapBounds(mapW, mapH, this.tileW, this.tileH);
         this.setupCameraZoom(mapW, mapH);
 
-        // Pick user character from Supabase
+        console.log('[CREATE] Picking user character');
         await this.pickUserCharacter();
+        console.log('[CREATE] Selected character:', this.selectedCharacter.name);
 
-        // Ensure animations exist for my char and create me
         const spawnX = this.mapW / 2;
         const spawnY = this.mapH / 2;
         this.createPlayerAt(spawnX, spawnY, this.tileW, this.tileH);
@@ -656,7 +820,7 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
         this.tileH = tileH;
 
         this.setupMapBounds(this.mapW, this.mapH, tileW, tileH);
-        this.setupCameraZoom(this.mapW, this.mapH);
+        this.setupCameraZoom(this.mapW, tileH);
 
         await this.pickUserCharacter();
 
@@ -670,7 +834,6 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
     update(time: number, delta: number) {
       this.playerMovement?.update(time, delta);
 
-      // Update HTML overlay positions
       if (this.player && this.playerNameElement) {
         this.updateNameOverlayPosition(
           this.playerNameElement,
@@ -715,23 +878,15 @@ export function createMapScene(opts: MapSceneOptions, Phaser: any) {
       this.remotePlayers = {};
       this.prevRemotePos = {};
       this.loadingTextures.clear();
-      
+      this.spriteCharacterMap = {};
       // Clean up HTML overlays
       this.destroyNameOverlay(this.playerNameElement);
       this.playerNameElement = null;
-      
+
       for (const userId in this.remoteNameElements) {
         this.destroyNameOverlay(this.remoteNameElements[userId]);
       }
       this.remoteNameElements = {};
-      if (this.playerNameContainer) {
-        this.playerNameContainer.destroy();
-        this.playerNameContainer = null;
-      }
-      for (const userId in this.remoteNameContainers) {
-        this.remoteNameContainers[userId].destroy();
-        delete this.remoteNameContainers[userId];
-      }
     }
   })();
 }
