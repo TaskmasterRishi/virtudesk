@@ -1,11 +1,13 @@
 'use client'
 import React, { useEffect, useRef } from 'react';
+import Link from 'next/link';
 import RoomCard from './_components/RoomCard';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Button } from '@/components/ui/button';
 import { useOrganization } from '@clerk/nextjs';
 import { useRoomStore } from '@/app/stores/roomStore';
 import CreateRoomBtn from './_components/CreateRoomBtn';
-import MeetingSummariesDialog from './_components/MeetingSummariesDialog';
+import { FileText } from 'lucide-react';
 
 export type Rooms = {
   id: string;
@@ -45,9 +47,14 @@ const page = () => {
 
   return (
     <div className="w-full">
-      <div className="mb-4 flex justify-end">
-        <MeetingSummariesDialog />
-      </div>
+      {/* <div className="mb-4 flex justify-end">
+        <Button asChild variant="outline" className="flex items-center gap-2">
+          <Link href="/dashboard/meetings">
+            <FileText className="h-4 w-4" />
+            Meeting Summaries
+          </Link>
+        </Button>
+      </div> */}
       <div className="w-full flex justify-center">
         <div className="flex flex-wrap justify-start gap-5 w-full">
           <CreateRoomBtn/>
