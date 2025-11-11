@@ -353,6 +353,12 @@ export default function ManagerAnalyticsDashboard({ initialData, orgId }: Manage
                             <div className="flex-1">
                               <div className="flex items-center gap-3 mb-1">
                                 <h3 className="text-lg font-bold text-slate-900">{employee.userName}</h3>
+                                {employee.isAFK && (
+                                  <Badge className="bg-amber-500 text-white border-amber-600 font-semibold animate-pulse">
+                                    <UserX className="h-3 w-3 mr-1" />
+                                    Currently AFK
+                                  </Badge>
+                                )}
                                 <Badge variant="outline" className="bg-slate-50 text-slate-700 border-slate-300 font-medium">
                                   {employee.completionRate}% Complete
                                 </Badge>
@@ -435,21 +441,41 @@ export default function ManagerAnalyticsDashboard({ initialData, orgId }: Manage
                       return (
                         <div 
                           key={employee.userId} 
-                          className="border border-slate-200 rounded-lg p-5 bg-white hover:shadow-md transition-shadow"
+                          className={`border rounded-lg p-5 bg-white hover:shadow-md transition-shadow relative overflow-hidden ${
+                            employee.isAFK 
+                              ? 'border-amber-400 border-2 bg-amber-50/30' 
+                              : 'border-slate-200'
+                          }`}
                         >
+                          {/* AFK Status Bar */}
+                          {employee.isAFK && (
+                            <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-amber-400 via-amber-500 to-amber-400 animate-pulse" />
+                          )}
+                          
                           <div className="flex items-start justify-between mb-4">
                             <div className="flex items-center gap-4 flex-1">
-                              <Avatar className="h-12 w-12 border-2 border-slate-200">
+                              <Avatar className={`h-12 w-12 border-2 relative ${
+                                employee.isAFK ? 'border-amber-400' : 'border-slate-200'
+                              }`}>
+                                {employee.isAFK && (
+                                  <div className="absolute -top-1 -right-1 h-4 w-4 bg-amber-500 rounded-full border-2 border-white animate-pulse" />
+                                )}
                                 <AvatarImage src="" />
-                                <AvatarFallback className="bg-slate-100 text-slate-700 font-semibold">
+                                <AvatarFallback className={`font-semibold ${
+                                  employee.isAFK ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-700'
+                                }`}>
                                   {employee.userName.split(' ').map(n => n[0]).join('').toUpperCase() || 'U'}
                                 </AvatarFallback>
                               </Avatar>
                               <div className="flex-1">
                                 <div className="flex items-center gap-3 mb-1">
-                                  <h3 className="text-lg font-bold text-slate-900">{employee.userName}</h3>
+                                  <h3 className={`text-lg font-bold ${
+                                    employee.isAFK ? 'text-amber-900' : 'text-slate-900'
+                                  }`}>
+                                    {employee.userName}
+                                  </h3>
                                   {employee.isAFK && (
-                                    <Badge className="bg-amber-100 text-amber-800 border-amber-300 font-medium">
+                                    <Badge className="bg-amber-500 text-white border-amber-600 font-semibold shadow-md">
                                       <UserX className="h-3 w-3 mr-1" />
                                       Currently AFK
                                     </Badge>

@@ -5,7 +5,7 @@ import { useUser } from '@clerk/nextjs'
 import { useAuth } from '@clerk/nextjs'
 
 const TWO_MIN = 2  * 60 * 1000
-const FIVE_MIN = 5  * 60 * 1000
+const FIVE_MIN = 5 * 60 * 1000
 
 export function useAFK() {
 	const { user, isLoaded } = useUser()
@@ -13,6 +13,7 @@ export function useAFK() {
 	const setActiveNow = useAFKStore((s) => s.setActiveNow)
 	const setToastShown = useAFKStore((s) => s.setInactiveToastShown)
 	const setAFKLocal = useAFKStore((s) => s.setAFK)
+	const incrementAFKCount = useAFKStore((s) => s.incrementAFKCount)
   const isAFK = useAFKStore((s) => s.isAFK)
   const startTracking = useAFKStore((s) => s.startTracking)
   const pauseTracking = useAFKStore((s) => s.pauseTracking)
@@ -45,8 +46,9 @@ export function useAFK() {
 			setAFKLocal(true)
 			setAFKStatus(true)
 			pauseTracking()
+			incrementAFKCount()
 		}, FIVE_MIN)
-	}, [clearTimers, setToastShown, setAFKLocal, pauseTracking])
+	}, [clearTimers, setToastShown, setAFKLocal, pauseTracking, incrementAFKCount])
 
 	const markActive = useCallback(() => {
 		setActiveNow()

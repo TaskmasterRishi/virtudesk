@@ -19,9 +19,11 @@ interface AFKState {
 	activeMsAccumulated: number
 	trackingDay: string
 	dailyGoalMs: number
+	afkCount: number // Add AFK count
 	setActiveNow: () => void
 	setInactiveToastShown: (shown: boolean) => void
 	setAFK: (afk: boolean) => void
+	incrementAFKCount: () => void // Add method to increment AFK count
 	startTracking: (timestamp?: number) => void
 	resumeTracking: (timestamp?: number) => void
 	pauseTracking: (timestamp?: number) => void
@@ -38,9 +40,22 @@ export const useAFKStore = create<AFKState>()(persist((set, get) => ({
 	activeMsAccumulated: 0,
 	trackingDay: getDayKey(Date.now()),
 	dailyGoalMs: DAILY_GOAL_MS,
+	afkCount: 0, // Initialize AFK count
 	setActiveNow: () => set({ lastActiveAt: Date.now() }),
 	setInactiveToastShown: (shown) => set({ inactiveToastShown: shown }),
-	setAFK: (afk) => set({ isAFK: afk }),
+	setAFK: (afk: boolean) => set({ isAFK: afk }),
+	incrementAFKCount: () => {
+		const now = Date.now()
+		const dayKey = getDayKey(now)
+		const state = get()
+		
+		// Reset count if day changed
+		if (state.trackingDay !== dayKey) {
+			set({ afkCount: 1, trackingDay: dayKey })
+		} else {
+			set({ afkCount: state.afkCount + 1 })
+		}
+	},
 	startTracking: (timestamp) => {
 		const resume = get().resumeTracking
 		resume(timestamp)
@@ -54,6 +69,7 @@ export const useAFKStore = create<AFKState>()(persist((set, get) => ({
 					trackingDay: dayKey,
 					activeMsAccumulated: 0,
 					timerStartedAt: now,
+					afkCount: 0, // Reset AFK count on new day
 				}
 			}
 			if (state.timerStartedAt !== null) {
@@ -71,6 +87,7 @@ export const useAFKStore = create<AFKState>()(persist((set, get) => ({
 					trackingDay: dayKey,
 					activeMsAccumulated: 0,
 					timerStartedAt: null,
+					afkCount: 0, // Reset AFK count on new day
 				}
 			}
 			if (state.timerStartedAt === null) {
@@ -109,5 +126,6 @@ export const useAFKStore = create<AFKState>()(persist((set, get) => ({
 		activeMsAccumulated: state.activeMsAccumulated,
 		trackingDay: state.trackingDay,
 		dailyGoalMs: state.dailyGoalMs,
+		afkCount: state.afkCount, // Persist AFK count
 	})
 }))
