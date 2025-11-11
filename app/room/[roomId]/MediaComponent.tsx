@@ -4,7 +4,7 @@ import {MODE,ModeType,destroyRealtime,participantType,registerSetMode,setModeSta
         broadcastModeChange,broadCastUserNames,setCurrentStateName,registerSetUserNames,broadcastMeetingState,registerSetIsMeeting,
         sendMeetingInvite,getMyId,registerSetShowInviteNotification,renegotiate,handleMute,getSelfId
     } from "../../../game/realtime/PlayerRealtime"
-import { useUser,useAuth } from '@clerk/nextjs';
+import { useUser, useAuth, useOrganization } from '@clerk/nextjs';
 import LeaveRoomButton from './LeaveRoomButton';
 import { error } from "console";
 // Math from phaser conflicts with native Math, using native Math directly
@@ -35,6 +35,7 @@ export default function  MediaComponent(props:propType){
     
     const { orgRole } = useAuth();
     const { user, isLoaded } = useUser();
+    const { organization } = useOrganization();
 
     const getUserRole = (): string => {
         if (!orgRole) return 'member';
@@ -56,6 +57,7 @@ export default function  MediaComponent(props:propType){
     const [isMeeting,setIsMeeting]=useState<boolean>(false)
     const [showInviteNotification,setShowInviteNotification]=useState<boolean>(false)
     const [isMuted,setIsMuted]=useState<boolean>(false)
+    const [members, setMembers] = useState<Array<{ id: string; name: string; role: string; }>>([])
     
     
     function updateMode(m:ModeType){
@@ -338,16 +340,62 @@ export default function  MediaComponent(props:propType){
         setUserRole(role);
         console.log("orgRole:", orgRole, "userRole:", role);
     }, [orgRole]);
+
+    // Load organization members for proper name display
+    useEffect(() => {
+        const load = async () => {
+            if (!organization || !organization.getMemberships) return;
+            try {
+                const list = await organization.getMemberships();
+                const arr = (list?.data || [])
+                    .filter((m: any) => m.publicUserData?.userId)
+                    .map((m: any) => {
+                        const first = m.publicUserData?.firstName?.trim();
+                        const last = m.publicUserData?.lastName?.trim();
+                        const hasName = first || last;
+                        const username = m.publicUserData?.username;
+                        const identifier = m.publicUserData?.identifier as string | undefined;
+                        const emailPrefix = identifier && identifier.includes("@")
+                            ? identifier.split("@")[0]
+                            : identifier;
+                    
+                        return {
+                            id: m.publicUserData.userId as string,
+                            name: hasName
+                                ? [first, last].filter(Boolean).join(" ")
+                                : (username || emailPrefix || "Member"),
+                            role: m.role,
+                        };
+                    })
+                setMembers(arr);
+            } catch {}
+        };
+        void load();
+    }, [organization]);
+
+    // Call functions after we have the names from organization members
+    // Wait for members to load, but also handle case where organization might not be available
     useEffect(() => {
         if (isLoaded && user && !hasSentMessage.current) {
-            const name = user.fullName || user.username || user.primaryEmailAddress?.emailAddress || '';
+            // If we have members loaded, prefer the name from members list
+            // Otherwise, use user data as fallback
+            let name = '';
+            if (members.length > 0) {
+                const currentUserMember = members.find(m => m.id === user.id);
+                name = currentUserMember?.name || user.fullName || user.username || user.primaryEmailAddress?.emailAddress || '';
+            } else {
+                // Fallback: use user data directly if members haven't loaded yet
+                // This ensures functions are called even if organization is not available
+                name = user.fullName || user.username || user.primaryEmailAddress?.emailAddress || '';
+            }
+            
+            // Call functions after we have the name
             registerSetUserNames(setUserNames)
             setCurrentStateName(name)
             broadCastUserNames(name)
-            hasSentMessage.current=true;
-        
+            hasSentMessage.current = true;
         }
-    }, [isLoaded, user]);
+    }, [isLoaded, user, members]);
 
     useEffect(()=>{
         if(mode===MODE.PROXIMITY){
@@ -582,8 +630,9 @@ export default function  MediaComponent(props:propType){
                             </div>
                         )}
                         {participants.map((p)=>{
-                            
-                            let u=userNames[p.id];
+                            // Get name from userNames (broadcast) or from members list as fallback
+                            const member = members.find(m => m.id === p.id);
+                            let u = userNames[p.id] || member?.name || "Unknown User";
 
                             return <React.Fragment key={p.id+"Names"}>
                                 <div  className="participantHolder" style={{

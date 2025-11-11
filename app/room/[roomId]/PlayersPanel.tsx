@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { useUser } from '@clerk/nextjs'
+import { useUser, useOrganization } from '@clerk/nextjs'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { getAllPlayers, getSelfId,sendCallNotification,registerSetShowCallNotification,registerSetCallerName,setCurrentStateStream
@@ -30,6 +30,8 @@ export default function PlayersPanel({ inMeeting, setInMeeting, roomId }: Player
 	const [unreadCount, setUnreadCount] = useState(0)
 	const selfId = getSelfId()
 	const { user } = useUser()
+	const { organization } = useOrganization()
+	const [members, setMembers] = useState<Array<{ id: string; name: string; role: string; }>>([])
 
 	const refresh = useCallback(() => {
 		const all = getAllPlayers()
@@ -42,6 +44,38 @@ export default function PlayersPanel({ inMeeting, setInMeeting, roomId }: Player
 		const t = setInterval(refresh, 1000)
 		return () => clearInterval(t)
 	}, [refresh])
+
+	// Load organization members for proper name display
+	useEffect(() => {
+		const load = async () => {
+			if (!organization || !organization.getMemberships) return;
+			try {
+				const list = await organization.getMemberships();
+				const arr = (list?.data || [])
+					.filter((m: any) => m.publicUserData?.userId)
+					.map((m: any) => {
+						const first = m.publicUserData?.firstName?.trim();
+						const last = m.publicUserData?.lastName?.trim();
+						const hasName = first || last;
+						const username = m.publicUserData?.username;
+						const identifier = m.publicUserData?.identifier as string | undefined;
+						const emailPrefix = identifier && identifier.includes("@")
+							? identifier.split("@")[0]
+							: identifier;
+					
+						return {
+							id: m.publicUserData.userId as string,
+							name: hasName
+								? [first, last].filter(Boolean).join(" ")
+								: (username || emailPrefix || "Member"),
+							role: m.role,
+						};
+					})
+				setMembers(arr);
+			} catch {}
+		};
+		void load();
+	}, [organization])
 
 	// Unread chat counter
 	useEffect(() => {
@@ -265,7 +299,9 @@ const handleRejectCall = useCallback(() => {
 						<div className="hidden">
 							{visiblePlayers.map((p) => {
 								const isCurrentUser = p.id === selfId
-								const displayName = p.name || p.id
+								// Get name from members list if available, otherwise fallback to p.name or p.id
+								const member = members.find(m => m.id === p.id);
+								const displayName = member?.name || p.name || p.id
 								return (
 									<TooltipProvider key={p.id}>
 										<Tooltip>
@@ -334,8 +370,10 @@ const handleRejectCall = useCallback(() => {
 							{/* Participants pane (kept mounted) */}
 							<div className={`${activeTab === 'participants' ? 'flex' : 'hidden'} flex-col flex-1 overflow-y-auto divide-y divide-slate-200 px-1`}>
 								{players.map((p) => {
-									const displayName = p.name || p.id
 									const isCurrentUser = p.id === selfId
+									// Get name from members list if available, otherwise fallback to p.name or p.id
+									const member = members.find(m => m.id === p.id);
+									const displayName = member?.name || p.name || p.id
 									return (
 										<div key={p.id} className="flex items-center gap-3 px-3 py-2">
 											<Avatar className="h-8 w-8">
