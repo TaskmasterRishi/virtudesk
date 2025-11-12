@@ -4,15 +4,22 @@ import { createClient } from '@/utils/supabase/server';
 import { auth } from '@clerk/nextjs/server';
 
 let globalStart:null | number=null;
+export type ChunkWithTimestamp = {
+    blob: BlobPart;
+    timestamp: number;
+}
+
 export type participantDataType={
     id:string,
+    name?:string,
     offset:number
-    chunks:BlobPart[],
+    chunks:ChunkWithTimestamp[],
     isFinished:boolean,
     endedAt?:number
 }
 const participants:Map<string,participantDataType>=new Map()
 const transcriptions:Map<string,ParticipantTranscription>=new Map()
+const participantNames:Map<string,string>=new Map() // Map of participantId -> name
 
 export type TranscriptionResult = {
     text: string;
@@ -27,6 +34,7 @@ export type TranscriptionResult = {
 
 export type ParticipantTranscription = {
     participantId: string;
+    participantName?: string;
     offset: number; // Time since meeting started (ms)
     endedAt?: number; // When recording ended (ms)
     transcription: TranscriptionResult | null;
@@ -35,7 +43,8 @@ export type ParticipantTranscription = {
 export type MeetingSummary = {
     summary: string;
     keyPoints: string[];
-    participants: string[];
+    participants: string[]; // Participant IDs
+    participantNames: Record<string, string>; // Map of participantId -> name
     duration: number; // Meeting duration in ms
     transcriptions: ParticipantTranscription[];
     startTime?: number; // Meeting start timestamp
@@ -46,6 +55,7 @@ export async function Init(a:number): Promise<void>{
     globalStart=a;
     participants.clear();
     transcriptions.clear();
+    participantNames.clear();
 }
 export async function stopMeeting(roomId: string): Promise<MeetingSummary | null> {
     if (globalStart === null) {
@@ -65,11 +75,16 @@ export async function stopMeeting(roomId: string): Promise<MeetingSummary | null
             participant.endedAt = meetingEndTime;
             
             const transcriptionPromise = (async () => {
-                const blob = new Blob(participant.chunks, { type: 'audio/webm' });
+                // Sort chunks by timestamp to ensure correct audio order
+                const sortedChunks = [...participant.chunks].sort((a, b) => a.timestamp - b.timestamp);
+                const blobParts = sortedChunks.map(chunk => chunk.blob);
+                const blob = new Blob(blobParts, { type: 'audio/webm' });
                 const transcription = await transcribeAudio(blob);
                 
+                const participantName = participantNames.get(id) || id;
                 transcriptions.set(id, {
                     participantId: id,
+                    participantName: participantName !== id ? participantName : undefined,
                     offset: participant.offset - globalStart, // Relative to meeting start
                     endedAt: participant.endedAt ? participant.endedAt - globalStart : undefined,
                     transcription: transcription,
@@ -79,8 +94,10 @@ export async function stopMeeting(roomId: string): Promise<MeetingSummary | null
             transcriptionPromises.push(transcriptionPromise);
         } else if (participant.isFinished) {
             // Already transcribed, just store the metadata
+            const participantName = participantNames.get(id) || id;
             transcriptions.set(id, {
                 participantId: id,
+                participantName: participantName !== id ? participantName : undefined,
                 offset: participant.offset - globalStart,
                 endedAt: participant.endedAt ? participant.endedAt - globalStart : undefined,
                 transcription: null, // Will be set if transcription was successful
@@ -113,6 +130,7 @@ export async function stopMeeting(roomId: string): Promise<MeetingSummary | null
     globalStart = null;
     participants.clear();
     transcriptions.clear();
+    participantNames.clear();
 
     // Add start and end times to summary for storage
     if (summary && meetingStartTime) {
@@ -127,21 +145,31 @@ export async function setNewParticipantServerAction(p:participantDataType): Prom
         console.warn("setNewParticipantServerAction called with 'notSet' ID");
         return;
     }
-    console.log(`[${p.id}] Setting new participant at offset: ${p.offset}`);
+    const participantName = p.name || p.id;
+    if (p.name) {
+        participantNames.set(p.id, p.name);
+    }
+    console.log(`[${participantName} (${p.id})] Setting new participant at offset: ${p.offset}`);
     participants.set(p.id, p);
-    console.log(`[${p.id}] Participant set. Total participants: ${participants.size}`);
+    console.log(`[${participantName} (${p.id})] Participant set. Total participants: ${participants.size}`);
 }
 export async function setParticipantOffset(a:number): Promise<void>{
 
 }
-export async function setParticipantBlobChunk(id:string,blob:BlobPart): Promise<void>{
+export async function setParticipantBlobChunk(id:string,blob:BlobPart,timestamp:number): Promise<void>{
     const p = participants.get(id);
     if (p) {
         const blobSize = (blob as Blob).size || 0;
-        console.log(`[${id}] Chunk size received: ${blobSize} bytes`);
-        p.chunks.push(blob);
+        const participantName = participantNames.get(id) || id;
+        console.log(`[${participantName} (${id})] Chunk size received: ${blobSize} bytes at timestamp: ${timestamp}`);
+        p.chunks.push({ blob, timestamp });
     } else {
-        console.warn(`[${id}] No participant found. Available participants:`, Array.from(participants.keys()));
+        const participantName = participantNames.get(id) || id;
+        const availableParticipants = Array.from(participants.keys()).map(pid => {
+            const name = participantNames.get(pid) || pid;
+            return `${name} (${pid})`;
+        });
+        console.warn(`[${participantName} (${id})] No participant found. Available participants:`, availableParticipants);
     }
 }
 
@@ -267,26 +295,34 @@ export async function stopRecorder(id:string,t:number): Promise<TranscriptionRes
         return null;
     }
     
+    const participantName = participantNames.get(id) || id;
     const p = participants.get(id);
     if(!p){
-        console.error(`[${id}] Participant not found in stopRecorder. Available:`, Array.from(participants.keys()));
+        const availableParticipants = Array.from(participants.keys()).map(pid => {
+            const name = participantNames.get(pid) || pid;
+            return `${name} (${pid})`;
+        });
+        console.error(`[${participantName} (${id})] Participant not found in stopRecorder. Available:`, availableParticipants);
         return null;
     }
     
     if(p.chunks.length === 0){
-        console.warn(`[${id}] No audio chunks recorded for participant`);
+        console.warn(`[${participantName} (${id})] No audio chunks recorded for participant`);
         return null;
     }
     
-    console.log(`[${id}] Stopping recorder. Total chunks: ${p.chunks.length}`);
+    console.log(`[${participantName} (${id})] Stopping recorder. Total chunks: ${p.chunks.length}`);
     p.isFinished = true;
     p.endedAt = t;
     
-    const blob = new Blob(p.chunks, { type: 'audio/webm' });
-    console.log(`[${id}] Created blob size: ${blob.size} bytes`);
+    // Sort chunks by timestamp to ensure correct audio order
+    const sortedChunks = [...p.chunks].sort((a, b) => a.timestamp - b.timestamp);
+    const blobParts = sortedChunks.map(chunk => chunk.blob);
+    const blob = new Blob(blobParts, { type: 'audio/webm' });
+    console.log(`[${participantName} (${id})] Created blob size: ${blob.size} bytes from ${sortedChunks.length} chunks (sorted by timestamp)`);
     
     if(blob.size === 0){
-        console.warn(`[${id}] Blob is empty, cannot transcribe`);
+        console.warn(`[${participantName} (${id})] Blob is empty, cannot transcribe`);
         return null;
     }
     
@@ -294,22 +330,23 @@ export async function stopRecorder(id:string,t:number): Promise<TranscriptionRes
     const transcription = await transcribeAudio(blob);
     
     if(!transcription){
-        console.error(`[${id}] Transcription failed`);
+        console.error(`[${participantName} (${id})] Transcription failed`);
         return null;
     }
     
-    console.log(`[${id}] Transcription successful: ${transcription.text.substring(0, 50)}...`);
+    console.log(`[${participantName} (${id})] Transcription successful: ${transcription.text.substring(0, 50)}...`);
     
     // Store transcription with offset
     if (globalStart !== null) {
         transcriptions.set(id, {
             participantId: id,
+            participantName: participantName !== id ? participantName : undefined,
             offset: p.offset - globalStart, // Relative to meeting start
             endedAt: t - globalStart,
             transcription: transcription,
         });
     } else {
-        console.warn(`[${id}] globalStart is null, cannot store transcription offset`);
+        console.warn(`[${participantName} (${id})] globalStart is null, cannot store transcription offset`);
     }
     
     return transcription;
@@ -331,7 +368,8 @@ function formatTranscriptWithTimestamps(
         const timeInSeconds = Math.floor((trans.offset % 60000) / 1000);
         const timeString = `${timeInMinutes}:${timeInSeconds.toString().padStart(2, '0')}`;
         
-        formatted += `[${timeString}] Participant ${trans.participantId}:\n`;
+        const participantName = trans.participantName || trans.participantId;
+        formatted += `[${timeString}] ${participantName}:\n`;
         formatted += `${trans.transcription.text}\n\n`;
     }
     
@@ -353,13 +391,22 @@ async function generateMeetingSummary(
             summary: "No transcriptions available for this meeting.",
             keyPoints: [],
             participants: [],
+            participantNames: {},
             duration: duration,
             transcriptions: transcriptions,
         };
     }
 
-    // Extract participant IDs
+    // Extract participant IDs and create name mapping
     const participantIds = [...new Set(transcriptions.map(t => t.participantId))];
+    const participantNamesMap: Record<string, string> = {};
+    for (const trans of transcriptions) {
+        if (trans.participantName) {
+            participantNamesMap[trans.participantId] = trans.participantName;
+        } else {
+            participantNamesMap[trans.participantId] = trans.participantId;
+        }
+    }
 
     try {
         // Use Hugging Face Inference API (completely free, no API key needed for public models)
@@ -407,6 +454,7 @@ async function generateMeetingSummary(
             summary: summaryText || "Summary generation failed.",
             keyPoints: keyPoints,
             participants: participantIds,
+            participantNames: participantNamesMap,
             duration: duration,
             transcriptions: transcriptions,
         };
@@ -428,10 +476,21 @@ function createFallbackSummary(
     const lines = transcript.split('\n').filter(line => line.trim().length > 0);
     const firstFewLines = lines.slice(0, 5).join(' ');
     
+    // Create participant names map
+    const participantNamesMap: Record<string, string> = {};
+    for (const trans of transcriptions) {
+        if (trans.participantName) {
+            participantNamesMap[trans.participantId] = trans.participantName;
+        } else {
+            participantNamesMap[trans.participantId] = trans.participantId;
+        }
+    }
+
     return {
         summary: `Meeting transcript summary: ${firstFewLines.substring(0, 200)}...`,
         keyPoints: extractKeyPoints(transcript, ""),
         participants: participantIds,
+        participantNames: participantNamesMap,
         duration: duration,
         transcriptions: transcriptions,
     };
@@ -492,11 +551,13 @@ export async function saveMeetingSummary(summary: MeetingSummary, roomId: string
                 summary_text: summary.summary,
                 key_points: summary.keyPoints,
                 participants: summary.participants,
+                participant_names: summary.participantNames,
                 duration_ms: summary.duration,
                 start_time: meetingStartTime,
                 end_time: meetingEndTime,
                 transcriptions: summary.transcriptions.map(t => ({
                     participant_id: t.participantId,
+                    participant_name: t.participantName || null,
                     offset: t.offset,
                     ended_at: t.endedAt,
                     transcription_text: t.transcription?.text || null,
