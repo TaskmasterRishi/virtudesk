@@ -1,578 +1,362 @@
-"use server"
+'use server'
 
-import { createClient } from '@/utils/supabase/server';
-import { auth } from '@clerk/nextjs/server';
+import fs from 'fs'
+import os from 'os'
+import path from 'path'
+import { createClient } from '@supabase/supabase-js'
+import { auth } from '@clerk/nextjs/server'
 
-let globalStart:null | number=null;
-export type participantDataType={
-    id:string,
-    offset:number
-    chunks:BlobPart[],
-    isFinished:boolean,
-    endedAt?:number
-}
-const participants:Map<string,participantDataType>=new Map()
-const transcriptions:Map<string,ParticipantTranscription>=new Map()
-
-export type TranscriptionResult = {
-    text: string;
-    confidence: number;
-    words?: Array<{
-        word: string;
-        start: number;
-        end: number;
-        confidence: number;
-    }>;
+// ──────────────────────────────────────────────
+// FIX: Allow duplex for fetch (Node.js limitation)
+// ──────────────────────────────────────────────
+declare global {
+  interface RequestInit {
+    duplex?: 'half'
+  }
 }
 
-export type ParticipantTranscription = {
-    participantId: string;
-    offset: number; // Time since meeting started (ms)
-    endedAt?: number; // When recording ended (ms)
-    transcription: TranscriptionResult | null;
+// ──────────────────────────────────────────────
+// ENVIRONMENT VARIABLES
+// ──────────────────────────────────────────────
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!
+const ASSEMBLYAI_API_KEY = process.env.ASSEMBLYAI_API_KEY!
+const HUGGINGFACE_API_KEY = process.env.HUGGINGFACE_API_KEY!
+
+if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY)
+  throw new Error('❌ Missing Supabase keys.')
+if (!ASSEMBLYAI_API_KEY)
+  throw new Error('❌ Missing AssemblyAI key.')
+if (!HUGGINGFACE_API_KEY)
+  throw new Error('❌ Missing Hugging Face key.')
+
+const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+
+// ──────────────────────────────────────────────
+// TYPES
+// ──────────────────────────────────────────────
+export type participantDataType = {
+  id: string
+  name?: string
+  offset: number
+  chunks: Blob[]
+  isFinished: boolean
 }
 
 export type MeetingSummary = {
-    summary: string;
-    keyPoints: string[];
-    participants: string[];
-    duration: number; // Meeting duration in ms
-    transcriptions: ParticipantTranscription[];
-    startTime?: number; // Meeting start timestamp
-    endTime?: number; // Meeting end timestamp
+  summary: string
+  keyPoints: string[]
+  participants: string[]
+  participantNames: Record<string, string>
+  transcriptions: { id: string; name?: string; text: string }[]
+  duration: number
+  startTime: string
+  endTime: string
 }
 
-export async function Init(a:number): Promise<void>{
-    globalStart=a;
-    participants.clear();
-    transcriptions.clear();
+// ──────────────────────────────────────────────
+// IN-MEMORY STORAGE
+// ──────────────────────────────────────────────
+const participantData: Record<string, participantDataType> = {}
+let meetingStartTime: number | null = null
+
+// ──────────────────────────────────────────────
+// HELPERS
+// ──────────────────────────────────────────────
+async function blobToTempFile(blob: Blob, prefix = 'audio'): Promise<string> {
+  const arrayBuffer = await blob.arrayBuffer()
+  const buffer = Buffer.from(arrayBuffer)
+  const tmpPath = path.join(os.tmpdir(), `${prefix}-${Date.now()}.webm`)
+  await fs.promises.writeFile(tmpPath, buffer)
+  return tmpPath
 }
+async function removeFile(p: string) {
+  try {
+    await fs.promises.unlink(p)
+  } catch {}
+}
+
+// ──────────────────────────────────────────────
+// 1️⃣ TRANSCRIBE WITH ASSEMBLYAI
+// ──────────────────────────────────────────────
+async function transcribeWithAssemblyAI(blob: Blob): Promise<string> {
+  const tmpPath = await blobToTempFile(blob)
+  try {
+    console.log('🎙️ Uploading audio to AssemblyAI...')
+
+    const uploadResp = await fetch('https://api.assemblyai.com/v2/upload', {
+      method: 'POST',
+      headers: { authorization: ASSEMBLYAI_API_KEY },
+      body: fs.createReadStream(tmpPath) as any,
+      duplex: 'half',
+    })
+    const { upload_url } = await uploadResp.json()
+
+    console.log('🔗 Uploaded. Starting transcription job...')
+    const transcriptReq = await fetch('https://api.assemblyai.com/v2/transcript', {
+      method: 'POST',
+      headers: {
+        authorization: ASSEMBLYAI_API_KEY,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ audio_url: upload_url }),
+      duplex: 'half',
+    })
+    const job = await transcriptReq.json()
+
+    // Poll until finished
+    let status = job.status
+    let result: any = null
+    while (status !== 'completed' && status !== 'error') {
+      await new Promise((r) => setTimeout(r, 3000))
+      const poll = await fetch(`https://api.assemblyai.com/v2/transcript/${job.id}`, {
+        headers: { authorization: ASSEMBLYAI_API_KEY },
+      })
+      result = await poll.json()
+      status = result.status
+    }
+
+    if (status === 'completed') {
+      console.log('✅ Transcription complete. Length:', result.text?.length || 0)
+      return result.text || ''
+    }
+    console.error('❌ AssemblyAI error:', result?.error)
+    return ''
+  } catch (err) {
+    console.error('⚠️ AssemblyAI failed:', err)
+    return ''
+  } finally {
+    await removeFile(tmpPath)
+  }
+}
+
+// ──────────────────────────────────────────────
+// 2️⃣ SUMMARIZE WITH HUGGINGFACE (UPDATED ENDPOINT)
+// ──────────────────────────────────────────────
+async function summarizeWithHuggingFace(transcript: string) {
+  try {
+    const model = 'facebook/bart-large-cnn'
+    const apiUrl = `https://router.huggingface.co/hf-inference/models/${model}`
+
+    console.log('🧾 Full transcript being summarized:', transcript.slice(0, 500))
+
+    const resp = await fetch(apiUrl, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${HUGGINGFACE_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ inputs: transcript.slice(0, 4000) }),
+    })
+    const data = await resp.json()
+
+    if (data?.error?.includes('loading')) {
+      console.log('⚙️ Model loading... retrying in 15s')
+      await new Promise((r) => setTimeout(r, 15000))
+      return await summarizeWithHuggingFace(transcript)
+    }
+
+    if (data?.error) {
+      console.error('❌ Hugging Face API error:', data.error)
+      return { summary: `Hugging Face API error: ${data.error}`, keyPoints: [] }
+    }
+
+    const text =
+      Array.isArray(data) && data[0]?.summary_text
+        ? data[0].summary_text
+        : typeof data === 'string'
+        ? data
+        : ''
+
+    if (!text) {
+      console.warn('⚠️ No summary returned:', data)
+      return { summary: 'No summary returned.', keyPoints: ['No summary returned'] }
+    }
+
+    const keyPoints = text
+      .split(/[.?!]/)
+      .map((t: string) => t.trim())
+      .filter((t: string) => t.length > 4)
+      .slice(0, 5)
+
+    console.log('🧠 Hugging Face summary generated successfully.')
+    console.log('📝 Summary Preview:', text.slice(0, 200))
+    return { summary: text, keyPoints }
+  } catch (err) {
+    console.error('❌ Hugging Face summarization failed:', err)
+    return { summary: '', keyPoints: [] }
+  }
+}
+
+// ──────────────────────────────────────────────
+// 3️⃣ MEETING ACTIONS
+// ──────────────────────────────────────────────
+export async function Init(startTime: number) {
+  meetingStartTime = startTime
+  for (const k of Object.keys(participantData)) delete participantData[k]
+  console.log('🟢 Meeting initialized at', new Date(startTime).toISOString())
+  return true
+}
+
+export async function setNewParticipantServerAction(p: participantDataType) {
+  participantData[p.id] = { ...p, chunks: [], isFinished: false }
+  console.log(`👤 Added participant ${p.id} (${p.name ?? 'Unnamed'})`)
+  return true
+}
+
+export async function setParticipantBlobChunk(id: string, blob: Blob, timestamp: number) {
+  const p = participantData[id]
+  if (!p) {
+    console.warn(`⚠️ setParticipantBlobChunk: no participant for ID ${id}`)
+    return false
+  }
+  p.chunks.push(blob)
+  p.offset = timestamp
+  console.log(`📦 Received blob from ${p.name || id} (${blob.size} bytes)`)
+  return true
+}
+
+export async function stopRecorder(id: string, stopTime: number) {
+  const p = participantData[id]
+  if (!p || p.chunks.length === 0) {
+    console.warn(`⚠️ No data to stopRecorder for ID ${id}`)
+    return null
+  }
+
+  p.isFinished = true
+  const combined = new Blob(p.chunks, { type: 'audio/webm;codecs=opus' })
+  console.log(`🎧 Stopping recorder for ${p.name || id}. Blob size: ${combined.size} bytes`)
+  const text = await transcribeWithAssemblyAI(combined)
+  console.log(`📝 Transcript for ${p.name || id}: ${text.slice(0, 200)}`)
+  return { id, name: p.name ?? id, text }
+}
+
 export async function stopMeeting(roomId: string): Promise<MeetingSummary | null> {
-    if (globalStart === null) {
-        return null;
+  if (!meetingStartTime) {
+    console.error('⚠️ Meeting start time not set.')
+    return null
+  }
+
+  const participants = Object.values(participantData)
+  const endTime = Date.now()
+  const duration = endTime - meetingStartTime
+
+  console.log('\n===============================')
+  console.log('🛑 Meeting Ended')
+  console.log(`🕒 Duration: ${(duration / 60000).toFixed(2)} minutes`)
+  console.log(`📦 Participants: ${participants.length}`)
+  console.log('===============================\n')
+
+  const transcriptions: { id: string; name?: string; text: string }[] = []
+
+  for (const p of participants) {
+    console.log(`🎤 [${p.name || p.id}] Processing ${p.chunks.length} chunks...`)
+    if (p.chunks.length === 0) {
+      transcriptions.push({ id: p.id, name: p.name, text: '' })
+      continue
     }
+    const combined = new Blob(p.chunks, { type: 'audio/webm;codecs=opus' })
+    console.log(`📀 [${p.name || p.id}] Combined blob size: ${(combined.size / 1024).toFixed(2)} KB`)
+    const text = await transcribeWithAssemblyAI(combined)
+    console.log(`📝 [${p.name || p.id}] Transcript:\n${text.slice(0, 200)}${text.length > 200 ? '...' : ''}`)
+    transcriptions.push({ id: p.id, name: p.name, text })
+  }
 
-    const meetingEndTime = Date.now();
-    const meetingDuration = meetingEndTime - globalStart;
+  const fullTranscript = transcriptions.map((t) => `${t.name ?? t.id}: ${t.text}`).join('\n')
+  const { summary, keyPoints } = await summarizeWithHuggingFace(fullTranscript)
+  const participantNames = Object.fromEntries(participants.map((p) => [p.id, p.name ?? 'Unknown']))
 
-    // Step 1: Transcribe all participants who haven't been transcribed yet
-    const transcriptionPromises: Promise<void>[] = [];
-    
-    for (const [id, participant] of participants.entries()) {
-        if (!participant.isFinished && participant.chunks.length > 0) {
-            // Mark as finished and transcribe
-            participant.isFinished = true;
-            participant.endedAt = meetingEndTime;
-            
-            const transcriptionPromise = (async () => {
-                const blob = new Blob(participant.chunks, { type: 'audio/webm' });
-                const transcription = await transcribeAudio(blob);
-                
-                transcriptions.set(id, {
-                    participantId: id,
-                    offset: participant.offset - globalStart, // Relative to meeting start
-                    endedAt: participant.endedAt ? participant.endedAt - globalStart : undefined,
-                    transcription: transcription,
-                });
-            })();
-            
-            transcriptionPromises.push(transcriptionPromise);
-        } else if (participant.isFinished) {
-            // Already transcribed, just store the metadata
-            transcriptions.set(id, {
-                participantId: id,
-                offset: participant.offset - globalStart,
-                endedAt: participant.endedAt ? participant.endedAt - globalStart : undefined,
-                transcription: null, // Will be set if transcription was successful
-            });
-        }
-    }
+  const result: MeetingSummary = {
+    summary,
+    keyPoints,
+    participants: participants.map((p) => p.id),
+    participantNames,
+    transcriptions,
+    duration,
+    startTime: new Date(meetingStartTime).toISOString(),
+    endTime: new Date(endTime).toISOString(),
+  }
 
-    // Wait for all transcriptions to complete
-    await Promise.all(transcriptionPromises);
+  console.log('\n✅ Meeting summarized successfully!')
+  console.log('📋 Summary:', summary.slice(0, 200))
+  console.log('📌 Key Points:', keyPoints)
 
-    // Step 2: Collect all transcriptions with their offsets
-    const allTranscriptions: ParticipantTranscription[] = [];
-    for (const [id, transcription] of transcriptions.entries()) {
-        allTranscriptions.push(transcription);
-    }
-
-    // Sort by offset (time in meeting)
-    allTranscriptions.sort((a, b) => a.offset - b.offset);
-
-    // Step 3: Format transcriptions with timestamps for summary
-    const formattedTranscript = formatTranscriptWithTimestamps(allTranscriptions, globalStart);
-
-    // Step 4: Generate summary using free AI model
-    const summary = await generateMeetingSummary(formattedTranscript, allTranscriptions, meetingDuration);
-
-    // Store start time before clearing
-    const meetingStartTime = globalStart;
-
-    // Step 5: Clear data
-    globalStart = null;
-    participants.clear();
-    transcriptions.clear();
-
-    // Add start and end times to summary for storage
-    if (summary && meetingStartTime) {
-        summary.startTime = meetingStartTime;
-        summary.endTime = meetingEndTime;
-    }
-
-    return summary;
-}
-export async function setNewParticipantServerAction(p:participantDataType): Promise<void>{
-    if(p.id === "notSet"){
-        console.warn("setNewParticipantServerAction called with 'notSet' ID");
-        return;
-    }
-    console.log(`[${p.id}] Setting new participant at offset: ${p.offset}`);
-    participants.set(p.id, p);
-    console.log(`[${p.id}] Participant set. Total participants: ${participants.size}`);
-}
-export async function setParticipantOffset(a:number): Promise<void>{
-
-}
-export async function setParticipantBlobChunk(id:string,blob:BlobPart): Promise<void>{
-    const p = participants.get(id);
-    if (p) {
-        const blobSize = (blob as Blob).size || 0;
-        console.log(`[${id}] Chunk size received: ${blobSize} bytes`);
-        p.chunks.push(blob);
-    } else {
-        console.warn(`[${id}] No participant found. Available participants:`, Array.from(participants.keys()));
-    }
+  await saveMeetingSummary(result, roomId)
+  return result
 }
 
+export async function saveMeetingSummary(summary: MeetingSummary, roomId: string) {
+  console.log('💾 Attempting to save meeting summary to Supabase...')
+  try {
+    const orgId = process.env.DEFAULT_ORG_ID ?? 'org_default'
+    const createdBy = process.env.SYSTEM_USER_ID ?? 'system'
 
+    const { data, error } = await supabase
+      .from('meeting_summaries')
+      .insert({
+        room_id: roomId,
+        org_id: orgId,
+        created_by: createdBy,
+        summary_text: summary.summary,
+        key_points: summary.keyPoints,
+        participants: summary.participants,
+        participant_names: summary.participantNames,
+        duration_ms: summary.duration,
+        start_time: summary.startTime,
+        end_time: summary.endTime,
+        transcriptions: summary.transcriptions,
+      })
+      .select()
 
-/**
- * Converts audio blob to text using AssemblyAI (Free tier: 5 hours/month)
- * @param audioBlob - The audio blob to transcribe
- * @returns Transcription result with text and confidence
- */
-async function transcribeAudio(audioBlob: Blob): Promise<TranscriptionResult | null> {
-    const ASSEMBLYAI_API_KEY = process.env.ASSEMBLYAI_API_KEY;
-    
-    if (!ASSEMBLYAI_API_KEY) {
-        console.error("ASSEMBLYAI_API_KEY is not set in environment variables");
-        return null;
+    if (error) {
+      console.error('❌ Supabase insert error:', error)
+      return null
     }
 
-    try {
-        // Step 1: Upload audio file to AssemblyAI
-        const uploadResponse = await fetch("https://api.assemblyai.com/v2/upload", {
-            method: "POST",
-            headers: {
-                authorization: ASSEMBLYAI_API_KEY,
-            },
-            body: audioBlob,
-        });
-
-        if (!uploadResponse.ok) {
-            const errorText = await uploadResponse.text();
-            const errorData = JSON.parse(errorText).error || errorText;
-            console.error("Failed to upload audio:", errorData);
-            
-            // Check if it's a quota/limit error
-            if (uploadResponse.status === 402 || errorText.includes("quota") || errorText.includes("limit")) {
-                console.error("AssemblyAI free tier limit reached. You've used all 5 hours this month.");
-            }
-            return null;
-        }
-
-        const { upload_url } = await uploadResponse.json();
-
-        // Step 2: Submit transcription request
-        const transcriptResponse = await fetch("https://api.assemblyai.com/v2/transcript", {
-            method: "POST",
-            headers: {
-                authorization: ASSEMBLYAI_API_KEY,
-                "content-type": "application/json",
-            },
-            body: JSON.stringify({
-                audio_url: upload_url,
-                language_code: "en_us", // Change if needed
-                punctuate: true,
-                format_text: true,
-            }),
-        });
-
-        if (!transcriptResponse.ok) {
-            const errorText = await transcriptResponse.text();
-            let errorData;
-            try {
-                errorData = JSON.parse(errorText).error || errorText;
-            } catch {
-                errorData = errorText;
-            }
-            console.error("Failed to submit transcription:", errorData);
-            
-            // Check if it's a quota/limit error
-            if (transcriptResponse.status === 402 || errorText.includes("quota") || errorText.includes("limit")) {
-                console.error("AssemblyAI free tier limit reached. You've used all 5 hours this month.");
-            }
-            return null;
-        }
-
-        const { id } = await transcriptResponse.json();
-
-        // Step 3: Poll for transcription result
-        let transcriptResult;
-        let pollingAttempts = 0;
-        const maxAttempts = 60; // 5 minutes max (5 seconds * 60)
-
-        while (pollingAttempts < maxAttempts) {
-            const pollingResponse = await fetch(
-                `https://api.assemblyai.com/v2/transcript/${id}`,
-                {
-                    headers: {
-                        authorization: ASSEMBLYAI_API_KEY,
-                    },
-                }
-            );
-
-            transcriptResult = await pollingResponse.json();
-
-            if (transcriptResult.status === "completed") {
-                return {
-                    text: transcriptResult.text || "",
-                    confidence: transcriptResult.confidence || 0,
-                    words: transcriptResult.words,
-                };
-            } else if (transcriptResult.status === "error") {
-                console.error("Transcription error:", transcriptResult.error);
-                    console.log("✅ Transcript text:", transcriptResult.text);
-                    console.log("🧠 Confidence:", transcriptResult.confidence);
-                return null;
-            }
-
-            // Wait 5 seconds before polling again
-            await new Promise((resolve) => setTimeout(resolve, 5000));
-            pollingAttempts++;
-        }
-
-        console.error("Transcription timeout");
-        return null;
-    } catch (error) {
-        console.error("Error in transcribeAudio:", error);
-        return null;
-    }
-}
-
-export async function stopRecorder(id:string,t:number): Promise<TranscriptionResult | null> {
-    if(id === "notSet"){
-        console.warn(`[${id}] stopRecorder called with "notSet" ID`);
-        return null;
-    }
-    
-    const p = participants.get(id);
-    if(!p){
-        console.error(`[${id}] Participant not found in stopRecorder. Available:`, Array.from(participants.keys()));
-        return null;
-    }
-    
-    if(p.chunks.length === 0){
-        console.warn(`[${id}] No audio chunks recorded for participant`);
-        return null;
-    }
-    
-    console.log(`[${id}] Stopping recorder. Total chunks: ${p.chunks.length}`);
-    p.isFinished = true;
-    p.endedAt = t;
-    
-    const blob = new Blob(p.chunks, { type: 'audio/webm' });
-    console.log(`[${id}] Created blob size: ${blob.size} bytes`);
-    
-    if(blob.size === 0){
-        console.warn(`[${id}] Blob is empty, cannot transcribe`);
-        return null;
-    }
-    
-    // Convert audio to text
-    const transcription = await transcribeAudio(blob);
-    
-    if(!transcription){
-        console.error(`[${id}] Transcription failed`);
-        return null;
-    }
-    
-    console.log(`[${id}] Transcription successful: ${transcription.text.substring(0, 50)}...`);
-    
-    // Store transcription with offset
-    if (globalStart !== null) {
-        transcriptions.set(id, {
-            participantId: id,
-            offset: p.offset - globalStart, // Relative to meeting start
-            endedAt: t - globalStart,
-            transcription: transcription,
-        });
-    } else {
-        console.warn(`[${id}] globalStart is null, cannot store transcription offset`);
-    }
-    
-    return transcription;
-}
-
-/**
- * Formats transcriptions with timestamps for summary generation
- */
-function formatTranscriptWithTimestamps(
-    transcriptions: ParticipantTranscription[],
-    meetingStart: number
-): string {
-    let formatted = "Meeting Transcript:\n\n";
-    
-    for (const trans of transcriptions) {
-        if (!trans.transcription || !trans.transcription.text) continue;
-        
-        const timeInMinutes = Math.floor(trans.offset / 60000);
-        const timeInSeconds = Math.floor((trans.offset % 60000) / 1000);
-        const timeString = `${timeInMinutes}:${timeInSeconds.toString().padStart(2, '0')}`;
-        
-        formatted += `[${timeString}] Participant ${trans.participantId}:\n`;
-        formatted += `${trans.transcription.text}\n\n`;
-    }
-    
-    return formatted;
-}
-
-/**
- * Generates meeting summary using Hugging Face Inference API (Free, no credit card required)
- * Uses facebook/bart-large-cnn model for summarization
- */
-async function generateMeetingSummary(
-    formattedTranscript: string,
-    transcriptions: ParticipantTranscription[],
-    duration: number
-): Promise<MeetingSummary | null> {
-    // If no transcriptions, return empty summary
-    if (transcriptions.length === 0 || formattedTranscript.trim().length === 0) {
-        return {
-            summary: "No transcriptions available for this meeting.",
-            keyPoints: [],
-            participants: [],
-            duration: duration,
-            transcriptions: transcriptions,
-        };
-    }
-
-    // Extract participant IDs
-    const participantIds = [...new Set(transcriptions.map(t => t.participantId))];
-
-    try {
-        // Use Hugging Face Inference API (completely free, no API key needed for public models)
-        // Using facebook/bart-large-cnn which is a good summarization model
-        const response = await fetch(
-            "https://api-inference.huggingface.co/models/facebook/bart-large-cnn",
-            {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                },
-                body: JSON.stringify({
-                    inputs: formattedTranscript,
-                    parameters: {
-                        max_length: 200, // Summary length
-                        min_length: 50,
-                        do_sample: false,
-                    },
-                }),
-            }
-        );
-
-        if (!response.ok) {
-            // If model is loading, wait and retry
-            if (response.status === 503) {
-                console.log("Model is loading, waiting 10 seconds...");
-                await new Promise(resolve => setTimeout(resolve, 10000));
-                return generateMeetingSummary(formattedTranscript, transcriptions, duration);
-            }
-            
-            const errorText = await response.text();
-            console.error("Failed to generate summary:", errorText);
-            
-            // Fallback: Create a simple summary from transcript
-            return createFallbackSummary(formattedTranscript, transcriptions, duration, participantIds);
-        }
-
-        const result = await response.json();
-        const summaryText = Array.isArray(result) ? result[0]?.summary_text || result[0]?.generated_text : result.summary_text || result.generated_text || "";
-
-        // Extract key points (simple extraction - can be improved)
-        const keyPoints = extractKeyPoints(formattedTranscript, summaryText);
-
-        return {
-            summary: summaryText || "Summary generation failed.",
-            keyPoints: keyPoints,
-            participants: participantIds,
-            duration: duration,
-            transcriptions: transcriptions,
-        };
-    } catch (error) {
-        console.error("Error generating summary:", error);
-        return createFallbackSummary(formattedTranscript, transcriptions, duration, participantIds);
-    }
-}
-
-/**
- * Creates a fallback summary if AI summarization fails
- */
-function createFallbackSummary(
-    transcript: string,
-    transcriptions: ParticipantTranscription[],
-    duration: number,
-    participantIds: string[]
-): MeetingSummary {
-    const lines = transcript.split('\n').filter(line => line.trim().length > 0);
-    const firstFewLines = lines.slice(0, 5).join(' ');
-    
-    return {
-        summary: `Meeting transcript summary: ${firstFewLines.substring(0, 200)}...`,
-        keyPoints: extractKeyPoints(transcript, ""),
-        participants: participantIds,
-        duration: duration,
-        transcriptions: transcriptions,
-    };
-}
-
-/**
- * Extracts key points from transcript (simple implementation)
- */
-function extractKeyPoints(transcript: string, summary: string): string[] {
-    const keyPoints: string[] = [];
-    
-    // Simple extraction: Look for sentences with action words or important phrases
-    const sentences = transcript.split(/[.!?]+/).filter(s => s.trim().length > 20);
-    
-    // Look for sentences with action words
-    const actionWords = ['decided', 'agreed', 'will', 'should', 'need', 'important', 'action', 'task', 'deadline'];
-    
-    for (const sentence of sentences) {
-        const lowerSentence = sentence.toLowerCase();
-        if (actionWords.some(word => lowerSentence.includes(word))) {
-            const trimmed = sentence.trim().substring(0, 150);
-            if (trimmed.length > 20 && !keyPoints.includes(trimmed)) {
-                keyPoints.push(trimmed);
-                if (keyPoints.length >= 5) break; // Limit to 5 key points
-            }
-        }
-    }
-    
-    return keyPoints.length > 0 ? keyPoints : ["No specific key points identified."];
-}
-
-/**
- * Saves meeting summary to Supabase
- */
-export async function saveMeetingSummary(summary: MeetingSummary, roomId: string): Promise<boolean> {
-    try {
-        const supabase = await createClient();
-        const { userId, orgId } = await auth();
-
-        if (!userId || !orgId) {
-            console.error("User not authenticated");
-            return false;
-        }
-
-        const meetingStartTime = summary.startTime 
-            ? new Date(summary.startTime).toISOString()
-            : new Date(Date.now() - summary.duration).toISOString();
-        const meetingEndTime = summary.endTime
-            ? new Date(summary.endTime).toISOString()
-            : new Date().toISOString();
-
-        const { error } = await supabase
-            .from('meeting_summaries')
-            .insert({
-                room_id: roomId,
-                org_id: orgId,
-                created_by: userId,
-                summary_text: summary.summary,
-                key_points: summary.keyPoints,
-                participants: summary.participants,
-                duration_ms: summary.duration,
-                start_time: meetingStartTime,
-                end_time: meetingEndTime,
-                transcriptions: summary.transcriptions.map(t => ({
-                    participant_id: t.participantId,
-                    offset: t.offset,
-                    ended_at: t.endedAt,
-                    transcription_text: t.transcription?.text || null,
-                    confidence: t.transcription?.confidence || null,
-                })),
-            });
-
-        if (error) {
-            console.error("Error saving meeting summary:", error);
-            return false;
-        }
-
-        return true;
-    } catch (error) {
-        console.error("Error in saveMeetingSummary:", error);
-        return false;
-    }
-}
-
-/**
- * Gets all meeting summaries for an organization
- */
-export async function getMeetingSummaries(orgId: string): Promise<any[]> {
-    try {
-        const supabase = await createClient();
-        const { userId } = await auth();
-
-        if (!userId || !orgId) {
-            return [];
-        }
-
-        const { data, error } = await supabase
-            .from('meeting_summaries')
-            .select('*')
-            .eq('org_id', orgId)
-            .order('start_time', { ascending: false });
-
-        if (error) {
-            console.error("Error fetching meeting summaries:", error);
-            return [];
-        }
-
-        return data || [];
-    } catch (error) {
-        console.error("Error in getMeetingSummaries:", error);
-        return [];
-    }
+    console.log('✅ Saved meeting summary to Supabase successfully:', data)
+    return data
+  } catch (err) {
+    console.error('⚠️ Error saving summary:', err)
+    return null
+  }
 }
 
 /**
  * Gets meeting summaries for a specific room
  */
-export async function getRoomMeetingSummaries(roomId: string): Promise<any[]> {
-    try {
-        const supabase = await createClient();
-        const { userId } = await auth();
 
-        if (!userId) {
-            return [];
-        }
 
-        const { data, error } = await supabase
-            .from('meeting_summaries')
-            .select('*')
-            .eq('room_id', roomId)
-            .order('start_time', { ascending: false });
 
-        if (error) {
-            console.error("Error fetching room meeting summaries:", error);
-            return [];
-        }
 
-        return data || [];
-    } catch (error) {
-        console.error("Error in getRoomMeetingSummaries:", error);
-        return [];
+// ✅ Create Supabase client once
+
+export async function getMeetingSummaries(roomId: string): Promise<any[]> {
+    const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+  try {
+    const { userId } = await auth();
+
+    if (!userId) {
+      console.warn('⚠️ No logged-in user found.');
+      return [];
     }
+
+    const { data, error } = await supabase
+      .from('meeting_summaries')
+      .select('*')
+      .eq('room_id', roomId)
+      .order('start_time', { ascending: false });
+
+    if (error) {
+      console.error('❌ Error fetching meeting summaries:', error);
+      return [];
+    }
+
+    console.log(`✅ Fetched ${data?.length || 0} summaries for room:`, roomId);
+    return data || [];
+  } catch (err) {
+    console.error('⚠️ Error in getMeetingSummaries():', err);
+    return [];
+  }
 }
+
 
