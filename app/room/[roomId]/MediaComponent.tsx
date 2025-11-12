@@ -11,9 +11,19 @@ import { error } from "console";
 // Math from phaser conflicts with native Math, using native Math directly
 import { Mic, MicOff, PenSquare, PhoneOff, Video } from "lucide-react";
 import { Span } from "next/dist/trace";
-import {Init , participantDataType,setNewParticipantServerAction,setParticipantBlobChunk,setParticipantOffset,stopMeeting,stopRecorder,type MeetingSummary, saveMeetingSummary
+import {
+  Init,
+  participantDataType,
+  setNewParticipantServerAction,
+  setParticipantBlobChunk,
+  stopMeeting,
+  stopRecorder,
+  type MeetingSummary,
+  saveMeetingSummary
+} from "@/app/actions/Summary";
 
-} from "./../../actions/Summary"
+
+
 import { set } from "react-hook-form";
 import { CollaborativeWhiteboardProps } from "@/components/CollaborativeWhiteboard";
 
@@ -247,24 +257,39 @@ export default function  MediaComponent(props:propType){
             setMeetingHost(null); // Clear meeting host when meeting ends
             setIsMeeting(false); // Explicitly set isMeeting to false
            
-            stopMeeting(props.roomId).then((summary: MeetingSummary | null) => {
-                if (summary) {
-                    console.log("Meeting Summary:", summary.summary);
-                    console.log("Key Points:", summary.keyPoints);
-                    console.log("Participants:", summary.participants.map(id => {
-                        const name = summary.participantNames?.[id] || id;
-                        return `${name} (${id})`;
-                    }));
-                    const durationMinutes = summary.duration / 60000;
-                    console.log("Duration:", Math.floor(durationMinutes) as number, "minutes");
-                    // Save to Supabase
-                    saveMeetingSummary(summary, props.roomId).catch((error) => {
-                        console.error("Error saving meeting summary:", error);
-                    });
-                }
-            }).catch((error) => {
-                console.error("Error generating meeting summary:", error);
-            });
+            stopMeeting(props.roomId)
+  .then((summary: MeetingSummary | null) => {
+    if (!summary) {
+      console.error("❌ No summary returned from stopMeeting()");
+      return;
+    }
+
+    console.groupCollapsed("📝 Meeting Summary Result");
+    console.log("📄 Summary Text:", summary.summary || "No summary text returned");
+    console.log("📌 Key Points:", summary.keyPoints?.length ? summary.keyPoints : ["(none)"]);
+    console.log(
+      "👥 Participants:",
+      summary.participants.map((id:string) => {
+        const name = summary.participantNames?.[id] || id;
+        return `${name} (${id})`;
+      })
+    );
+    console.log("⏱️ Duration:", (summary.duration / 60000).toFixed(1), "minutes");
+    console.groupEnd();
+
+    saveMeetingSummary(summary, props.roomId)
+      .then(() => {
+        console.log("✅ Meeting summary saved to Supabase successfully!");
+        alert("✅ Meeting summary saved! Check your Supabase table.");
+      })
+      .catch((error) => {
+        console.error("❌ Error saving summary to Supabase:", error);
+      });
+  })
+  .catch((error) => {
+    console.error("❌ Error generating meeting summary:", error);
+  });
+
         }
         // If others are still in meeting, just leave (they will see Join Meeting button)
         

@@ -343,7 +343,7 @@ export function broadcastCallLeave(){
   if (currentState.callerId) {
     channel?.send({type:"broadcast",event:"Call-Ended",payload:{from:playerIdRef,to:currentState.callerId}})
     // Broadcast that call has ended
-    broadcastCallState(playerIdRef, currentState.callerId, false);
+    broadcastCallState(playerIdRef!, currentState.callerId, false);
   }
 }
 
